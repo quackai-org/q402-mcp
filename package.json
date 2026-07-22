@@ -1,0 +1,79 @@
+{
+  "name": "@quackai/q402-mcp",
+  "version": "0.11.11",
+  "description": "MCP server for Q402. Gasless USDC/USDT/RLUSD/Q payments on 12 EVM chains (USDG on Robinhood Chain), Q402 Yield (gasless supply and withdraw into Aave, Lista, and Morpho lending vaults), gasless non-custodial escrow (create, fund, release, refund, dispute), Q staking, a Chainlink CCIP USDC bridge on the eth/avax/arbitrum triangle, and RedStone NAV/price triggers (autonomous gasless payout on a feed crossing), and read-only treasury Memory (spend summaries, vendor history, per-agent spend reports). 46 tools, callable from Claude (Desktop / Code), OpenAI Codex CLI, and any other Model Context Protocol client.",
+  "mcpName": "io.github.quackai-org/q402-mcp",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "claude-desktop",
+    "claude-code",
+    "codex",
+    "openai-codex",
+    "cursor",
+    "cline",
+    "copilot",
+    "github-copilot",
+    "hermes",
+    "q402",
+    "x402",
+    "stablecoin",
+    "usdc",
+    "usdt",
+    "rlusd",
+    "ripple",
+    "gasless",
+    "eip-7702",
+    "payments",
+    "ai-agents"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "q402-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.18"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run lint && npm run build",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "ethers": "^6.16.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.5.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/quackai-org/q402-mcp.git"
+  },
+  "homepage": "https://q402.quackai.ai/claude",
+  "bugs": {
+    "url": "https://github.com/quackai-org/q402-mcp/issues"
+  },
+  "license": "Apache-2.0",
+  "author": "David Lee <davidlee@quackai.ai>",
+  "publishConfig": {
+    "access": "public"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1",
+    "ws": "^8.21.0",
+    "hono": "^4.12.25"
+  }
+}

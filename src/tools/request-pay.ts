@@ -1,0 +1,247 @@
+/**
+ * q402_request_pay - pay a Q402 payment request from your own Agent Wallet.
+ *
+ * Mode-C (apiKey) gasless settlement: the server signs from the payer's
+ * encrypted Agent Wallet key and relays for $0 gas. recipient / amount /
+ * chain / token come from the stored request (the payer can't redirect or
+ * change the sum). MOVES FUNDS, so it gates on confirm:true plus a live key
+ * and Q402_ENABLE_REAL_PAYMENTS=1 - identical safety to q402_pay. The same
+ * Q402_MAX_AMOUNT_PER_CALL + Q402_ALLOWED_RECIPIENTS rails apply.
+ *
+ * Flow: GET /api/request/{id} to resolve the terms, then
+ * POST /api/request/{id}/pay { payerApiKey, walletId? } (server mode).
+ */
+
+import { z } from "zod";
+import { CONFIG, resolveApiKey } from "../config.js";
+import { checkConsent } from "../consent.js";
+
+export const RequestPayInputSchema = z.object({
+  requestId: z
+    .string()
+    .regex(/^req_[0-9a-f]{24}$/, "requestId must match req_<24-hex>")
+    .describe("The payment request to pay (req_ + 24 hex). Get it from a /pay link, a 402 response, or whoever billed you."),
+  confirm: z
+    .literal(true)
+    .describe(
+      "REQUIRED. Must be literally `true`. Acknowledges this moves real funds from your Agent Wallet.",
+    ),
+  consentToken: z
+    .string()
+    .optional()
+    .describe(
+      "Two-phase consent, identical to q402_pay. Call FIRST WITHOUT it: the tool moves no money and " +
+        "returns status=\"needs_consent\" with a `preview` of the exact payment plus a `consentToken`. " +
+        "Relay the preview to the user, get an explicit yes, then re-call with the SAME requestId PLUS " +
+        "this consentToken. The token is re-derived from the request's terms, so a previewed payment " +
+        "cannot be swapped for a different one. confirm:true alone does NOT fire a payment.",
+    ),
+  walletId: z
+    .string()
+    .optional()
+    .describe("Optional lowercased Agent Wallet address to pay from when you hold multiple. Defaults to Q402_AGENT_WALLET_ADDRESS, then the server default."),
+});
+export type RequestPayInput = z.infer<typeof RequestPayInputSchema>;
+
+interface PublicRequest {
+  id: string;
+  recipient: string;
+  chain: string;
+  token: "USDC" | "USDT";
+  amount: string;
+  memo?: string;
+  status: "open" | "paid" | "expired" | "cancelled";
+  expiresAt: string;
+  sandbox: boolean;
+}
+
+export interface RequestPayResult {
+  ok: boolean;
+  status: "paid" | "failed" | "not_payable" | "sandbox" | "needs_consent";
+  requestId: string;
+  txHash: string | null;
+  receiptId: string | null;
+  amount?: string;
+  token?: string;
+  chain?: string;
+  recipient?: string;
+  error?: string;
+  message?: string;
+  setupHint?: string;
+  /** Set when called without a valid consentToken - the AI must relay the
+   *  preview to the user and re-call with the same args + this consentToken.
+   *  No funds moved. */
+  needsConsent?: { status: "needs_confirmation"; preview: string; consentToken: string };
+}
+
+export async function runRequestPay(input: RequestPayInput): Promise<RequestPayResult> {
+  const base = CONFIG.relayBaseUrl;
+
+  // 1. Resolve the request terms (server is the source of truth).
+  let req: PublicRequest;
+  try {
+    const r = await fetch(`${base}/request/${input.requestId}`, { signal: AbortSignal.timeout(10_000) });
+    if (r.status === 404) {
+      return { ok: false, status: "not_payable", requestId: input.requestId, txHash: null, receiptId: null, error: "NOT_FOUND", message: "No request with that id." };
+    }
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    req = ((await r.json()) as { request: PublicRequest }).request;
+  } catch (e) {
+    return { ok: false, status: "failed", requestId: input.requestId, txHash: null, receiptId: null, error: "LOOKUP_FAILED", message: e instanceof Error ? e.message : String(e) };
+  }
+
+  const terms = { amount: req.amount, token: req.token, chain: req.chain, recipient: req.recipient };
+
+  if (req.status !== "open") {
+    return { ok: false, status: "not_payable", requestId: req.id, txHash: null, receiptId: null, ...terms, error: req.status.toUpperCase(), message: `Request is ${req.status} - nothing to pay.` };
+  }
+
+  // 2. Client-side rails (same as q402_pay / q402_request_create).
+  const amountNum = Number(req.amount);
+  if (Number.isFinite(amountNum) && amountNum > CONFIG.maxAmountPerCallUsd) {
+    return { ok: false, status: "not_payable", requestId: req.id, txHash: null, receiptId: null, ...terms, error: "AMOUNT_EXCEEDS_CAP", message: `Request amount $${req.amount} exceeds your Q402_MAX_AMOUNT_PER_CALL cap of $${CONFIG.maxAmountPerCallUsd}.` };
+  }
+  if (CONFIG.allowedRecipients.length > 0 && !CONFIG.allowedRecipients.includes(req.recipient.toLowerCase())) {
+    return { ok: false, status: "not_payable", requestId: req.id, txHash: null, receiptId: null, ...terms, error: "RECIPIENT_NOT_ALLOWED", message: `Recipient ${req.recipient} is not in Q402_ALLOWED_RECIPIENTS.` };
+  }
+
+  // 2.5 Two-phase consent - identical to q402_pay. A first call without a valid
+  // consentToken moves NO money: it returns a preview + token the agent must
+  // relay to the user and echo back. Defeats one-shot prompt-injected pays.
+  const consentIntent = {
+    t: "request_pay",
+    requestId: req.id,
+    to: req.recipient.toLowerCase(),
+    amount: req.amount,
+    token: req.token,
+    chain: req.chain,
+    // Bind the funding source too - the user is consenting to pay from THIS
+    // wallet, so swapping walletId after the preview must void consent. Mirrors
+    // q402_pay's consentIntent. Empty string = the server-default Agent Wallet
+    // (resolved at settle time); pinning a specific wallet re-triggers consent.
+    wid: (input.walletId ?? "").toLowerCase(),
+  };
+  const consent = checkConsent(consentIntent, input.consentToken);
+  if (!consent.ok) {
+    const fromNote = input.walletId
+      ? ` from wallet ${input.walletId}`
+      : "";
+    return {
+      ok: false,
+      status: "needs_consent",
+      requestId: req.id,
+      txHash: null,
+      receiptId: null,
+      ...terms,
+      message:
+        "Relay this preview to the user and get an explicit yes, then re-call with the same requestId " +
+        "plus consentToken. No funds moved.",
+      needsConsent: {
+        status: "needs_confirmation",
+        preview: `Pay ${req.amount} ${req.token} to ${req.recipient} on ${req.chain}${fromNote} (request ${req.id}).`,
+        consentToken: consent.expected,
+      },
+    };
+  }
+
+  // 3. Resolve a LIVE key for the request's chain + require explicit opt-in.
+  const resolved = resolveApiKey(req.chain, "auto");
+  if (!resolved.apiKey || !resolved.apiKey.startsWith("q402_live_")) {
+    return {
+      ok: false,
+      status: "sandbox",
+      requestId: req.id,
+      txHash: null,
+      receiptId: null,
+      ...terms,
+      error: "LIVE_KEY_REQUIRED",
+      message: "Paying a request settles real funds and needs a live Q402 API key.",
+      setupHint: resolved.sandboxReason ?? "Configure a live Q402_MULTICHAIN_API_KEY (or Q402_TRIAL_API_KEY for BNB) to pay requests.",
+    };
+  }
+  if (!CONFIG.realPaymentsRequested) {
+    return {
+      ok: false,
+      status: "sandbox",
+      requestId: req.id,
+      txHash: null,
+      receiptId: null,
+      ...terms,
+      error: "REAL_PAYMENTS_DISABLED",
+      message: "Real payments are off, so this request was not paid.",
+      setupHint: "Set Q402_ENABLE_REAL_PAYMENTS=1 to let q402_request_pay settle real funds.",
+    };
+  }
+
+  const walletId =
+    typeof input.walletId === "string" && input.walletId.length > 0
+      ? input.walletId.toLowerCase()
+      : CONFIG.walletId;
+
+  // 4. Server-mode settle: the pay route signs from the payer's Agent Wallet,
+  //    relays gaslessly, and marks the request paid atomically.
+  try {
+    const res = await fetch(`${base}/request/${req.id}/pay`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        payerApiKey: resolved.apiKey,
+        ...(walletId ? { walletId } : {}),
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      status?: string;
+      txHash?: string;
+      receiptId?: string;
+      error?: string;
+      message?: string;
+    };
+    if (!res.ok || !data.txHash) {
+      return { ok: false, status: "failed", requestId: req.id, txHash: null, receiptId: null, ...terms, error: data.error ?? `HTTP_${res.status}`, message: data.message ?? data.error ?? `Settlement failed (HTTP ${res.status}).` };
+    }
+    return { ok: true, status: "paid", requestId: req.id, txHash: data.txHash, receiptId: data.receiptId ?? null, ...terms };
+  } catch (e) {
+    return { ok: false, status: "failed", requestId: req.id, txHash: null, receiptId: null, ...terms, error: "NETWORK_ERROR", message: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export const REQUEST_PAY_TOOL = {
+  name: "q402_request_pay",
+  description:
+    "Pay a Q402 payment request from your own Agent Wallet, gaslessly. Give it a req_ id (from a " +
+    "/pay link, a 402 Payment Required response, or whoever billed you) and it settles the exact " +
+    "amount + token + recipient the request specifies - you cannot redirect or change them. MOVES " +
+    "FUNDS: requires confirm:true, a live API key, and Q402_ENABLE_REAL_PAYMENTS=1, same as q402_pay. " +
+    "Call q402_request_status first to show the user what they're paying. This is the agent-to-agent " +
+    "billing path: agent A bills with q402_request_create, agent B settles here.",
+  inputSchema: {
+    type: "object" as const,
+    properties: {
+      requestId: {
+        type: "string" as const,
+        pattern: "^req_[0-9a-f]{24}$",
+        description: "Required. The req_ id to pay.",
+      },
+      confirm: {
+        type: "boolean" as const,
+        const: true,
+        description: "REQUIRED. Must be literally true. Paying moves real funds - get an explicit user yes first.",
+      },
+      walletId: {
+        type: "string" as const,
+        description: "Optional. Agent Wallet address to pay from. Defaults to the configured / server-default wallet.",
+      },
+      consentToken: {
+        type: "string" as const,
+        description:
+          "Two-phase consent. Omit on the FIRST call to get a needs_confirmation preview " +
+          "plus a consentToken (no funds move); re-call with the SAME requestId plus this " +
+          "token to execute. Re-derived from the request terms + funding wallet, so a " +
+          "previewed payment cannot be swapped for a different one.",
+      },
+    },
+    required: ["requestId", "confirm"],
+    additionalProperties: false,
+  },
+};
