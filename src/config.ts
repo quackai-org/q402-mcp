@@ -256,6 +256,13 @@ export interface Config {
   maxAmountPerCallUsd: number;
   /** Lowercase recipient allowlist (empty = no allowlist). */
   allowedRecipients: string[];
+  /** Travala adapter mode. "mock" (default) or "live". Read from process.env directly
+   *  because config only auto-merges Q402_* from the env file. */
+  travelMode: "mock" | "live";
+  /** Travala agent ID for reward attribution (TRAVALA_AGENT_ID). May be empty in Phase 1. */
+  travalaAgentId: string | null;
+  /** Travala reward wallet address (TRAVALA_REWARD_WALLET). May be empty in Phase 1. */
+  travalaRewardWallet: string | null;
 }
 
 // Default relay endpoint. Override via Q402_RELAY_BASE_URL env when
@@ -348,6 +355,12 @@ export function loadConfig(): Config {
   // though its BNB / bridge / yield pays settle live.
   const live = realPaymentsRequested && anyLiveKey;
 
+  // Travala vars are read directly from process.env (not ENV) because they are
+  // not Q402_* prefixed and therefore not merged from ~/.q402/mcp.env.
+  const travelMode = process.env["TRAVEL_MODE"] === "live" ? "live" as const : "mock" as const;
+  const travalaAgentId   = process.env["TRAVALA_AGENT_ID"]     ?? null;
+  const travalaRewardWallet = process.env["TRAVALA_REWARD_WALLET"] ?? null;
+
   return {
     trialApiKey,
     multichainApiKey,
@@ -362,6 +375,9 @@ export function loadConfig(): Config {
     relayBaseUrl: (ENV.Q402_RELAY_BASE_URL ?? DEFAULT_RELAY_BASE).replace(/\/$/, ""),
     maxAmountPerCallUsd: parseMaxAmount(ENV.Q402_MAX_AMOUNT_PER_CALL),
     allowedRecipients: parseAllowedRecipients(ENV.Q402_ALLOWED_RECIPIENTS),
+    travelMode,
+    travalaAgentId,
+    travalaRewardWallet,
   };
 }
 
