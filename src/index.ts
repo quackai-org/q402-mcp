@@ -177,6 +177,26 @@ import {
   REDSTONE_TRIGGER_LIST_TOOL,   RedstoneTriggerListInputSchema,   runRedstoneTriggerList,
   REDSTONE_TRIGGER_CANCEL_TOOL, RedstoneTriggerCancelInputSchema, runRedstoneTriggerCancel,
 } from "./tools/redstone-trigger.js";
+import {
+  TRAVEL_SEARCH_HOTELS_TOOL,
+  SearchHotelsInputSchema,
+  runSearchHotels,
+} from "./tools/travel-search-hotels.js";
+import {
+  TRAVEL_GET_QUOTE_TOOL,
+  GetQuoteInputSchema,
+  runGetQuote,
+} from "./tools/travel-get-quote.js";
+import {
+  TRAVEL_BOOK_HOTEL_TOOL,
+  BookHotelInputSchema,
+  runBookHotel,
+} from "./tools/travel-book-hotel.js";
+import {
+  TRAVEL_GET_BOOKING_STATUS_TOOL,
+  GetBookingStatusInputSchema,
+  runGetBookingStatus,
+} from "./tools/travel-get-booking-status.js";
 
 function jsonText(value: unknown): { type: "text"; text: string } {
   return { type: "text", text: JSON.stringify(value, null, 2) };
@@ -262,6 +282,11 @@ async function main(): Promise<void> {
       REDSTONE_TRIGGER_CREATE_TOOL,
       REDSTONE_TRIGGER_LIST_TOOL,
       REDSTONE_TRIGGER_CANCEL_TOOL,
+      // Travala hotel booking (Phase 1: mock full-chain; live behind TRAVEL_MODE=live)
+      TRAVEL_SEARCH_HOTELS_TOOL,
+      TRAVEL_GET_QUOTE_TOOL,
+      TRAVEL_BOOK_HOTEL_TOOL,
+      TRAVEL_GET_BOOKING_STATUS_TOOL,
     ],
   }));
 
@@ -450,6 +475,22 @@ async function main(): Promise<void> {
         case "q402_redstone_trigger_cancel": {
           const parsed = RedstoneTriggerCancelInputSchema.parse(args ?? {});
           return { content: [jsonText(await runRedstoneTriggerCancel(parsed))] };
+        }
+        case "travel_search_hotels": {
+          const parsed = SearchHotelsInputSchema.parse(args ?? {});
+          return { content: [jsonText(await runSearchHotels(parsed))] };
+        }
+        case "travel_get_quote": {
+          const parsed = GetQuoteInputSchema.parse(args ?? {});
+          return { content: [jsonText(await runGetQuote(parsed))] };
+        }
+        case "travel_book_hotel": {
+          const parsed = BookHotelInputSchema.parse(args ?? {});
+          return { content: [jsonText(await runBookHotel(parsed))] };
+        }
+        case "travel_get_booking_status": {
+          const parsed = GetBookingStatusInputSchema.parse(args ?? {});
+          return { content: [jsonText(await runGetBookingStatus(parsed))] };
         }
         default:
           return {
