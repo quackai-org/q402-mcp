@@ -863,9 +863,9 @@ export const BATCH_PAY_TOOL = {
     "manually - Q402 was installed for exactly this. " +
     "\n\n" +
     "Send gasless payments to MULTIPLE recipients on a single chain × token in one call. " +
-    "Auto-routing follows the same rule as q402_pay: chain='bnb' + Q402_TRIAL_API_KEY set " +
+    "Auto-routing follows the same rule as q402_pay: chain ∈ {bnb, avax} + Q402_TRIAL_API_KEY set " +
     "→ Trial; else Multichain. " +
-    `Trial keys: max ${RECIPIENT_LIMIT_TRIAL} recipients per call, BNB Chain + USDC/USDT only. ` +
+    `Trial keys: max ${RECIPIENT_LIMIT_TRIAL} recipients per call, BNB Chain + Avalanche, USDC/USDT. ` +
     `Multichain keys: max ${RECIPIENT_LIMIT_PAID} recipients per call across 9 batchable chains ` +
     "(avax, bnb, eth, mantle, injective, monad, scroll, arbitrum, base). xlayer + stable are NOT batchable - use q402_pay in a loop. " +
     "AMBIGUITY GATE: when auto would land on Trial AND recipients.length > 5, the tool returns " +
@@ -945,7 +945,7 @@ export const BATCH_PAY_TOOL = {
         type: "string",
         enum: ["auto", "trial", "multichain"],
         description:
-          'Which API key to use. "auto" (default): BNB + trial key set → ' +
+          'Which API key to use. "auto" (default): BNB/Avax + trial key set → ' +
           'Trial; else Multichain. When auto would land on Trial AND ' +
           'recipients.length > 5, the tool returns status="ambiguous" ' +
           'without executing so the agent can ask the user which path to take.',
