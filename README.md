@@ -7,7 +7,7 @@
 
 > **Free trial available (through 2026-07-20)**. 2,000 gasless transactions on BNB Chain (USDC + USDT), 30-day window, no card. One wallet signature: <https://q402.quackai.ai>.
 >
-> **Trial-scope policy:** API keys minted under the free-trial program (`plan: "trial"`) are restricted to BNB Chain with USDC/USDT - server-side enforcement, returns `403 TRIAL_BNB_ONLY` otherwise. **Paid API keys see the full 12-chain matrix at all times.**
+> **Trial-scope policy:** API keys minted under the free-trial program (`plan: "trial"`) settle on BNB Chain + Avalanche (USDC gasless on both; USDT gasless on BNB) - server-side enforcement, returns `TRIAL_BNB_ONLY` for any other chain. **Paid API keys see the full 12-chain matrix at all times.**
 
 Quote → route → (optional) settle stablecoin payments across 12 EVM chains, from any MCP client. Recipient gets the full amount; sender pays $0 gas via [Q402](https://q402.quackai.ai)'s EIP-7702 relayer.
 
@@ -98,7 +98,7 @@ Create `~/.q402/mcp.env` yourself with the template below. Live mode only flips 
 # ~/.q402/mcp.env
 
 # ── API key (pick one or both for auto-routing) ──
-Q402_TRIAL_API_KEY=          # Free Trial, BNB only (from /event)
+Q402_TRIAL_API_KEY=          # Free Trial, BNB + Avalanche (from /event)
 Q402_MULTICHAIN_API_KEY=     # Paid Multichain, all 12 chains (from /payment)
 
 # ── Signing path - pick ONE of Mode A / B / C ──
@@ -255,7 +255,7 @@ Template `q402_doctor` writes to `~/.q402/mcp.env`:
 # Batch ambiguity: 6+ recipient BNB batch with Trial set returns
 #   status="ambiguous" instead of executing - agent asks user to pick.
 # Override per call with keyScope: "auto" | "trial" | "multichain".
-Q402_TRIAL_API_KEY=                # BNB-only sponsored Trial key (from /event)
+Q402_TRIAL_API_KEY=                # BNB + Avalanche sponsored Trial key (from /event)
 Q402_MULTICHAIN_API_KEY=           # paid 12-chain key (per-chain Gas Tank)
 
 # ── Signing path - pick ONE of Mode A / B / C ──
@@ -293,8 +293,8 @@ Combined with the two-phase `consentToken` + live-mode env, a **stablecoin** pay
 
 | Env var | Required for | Notes |
 |---|---|---|
-| `Q402_TRIAL_API_KEY` | live-pay (BNB) | BNB-only sponsored Trial key. Free at https://q402.quackai.ai/event. Auto-routed for `chain="bnb"` in both `q402_pay` and `q402_batch_pay` (≤5 recipients) when set. 6+ recipient BNB batches return `status="ambiguous"` so the agent can ask the user how to split. |
-| `Q402_MULTICHAIN_API_KEY` | live-pay (12-chain) | Paid 12-chain key. Get one at https://q402.quackai.ai/payment. Auto-routed for non-BNB chains AND for BNB when no Trial key is set. Cap: 20 recipients per batch. Required for Mode C (server-managed Agent Wallet). |
+| `Q402_TRIAL_API_KEY` | live-pay (BNB + Avax) | BNB + Avalanche sponsored Trial key. Free at https://q402.quackai.ai/event. Auto-routed for `chain="bnb"` / `chain="avax"` in both `q402_pay` and `q402_batch_pay` (≤5 recipients) when set. 6+ recipient trial batches return `status="ambiguous"` so the agent can ask the user how to split. |
+| `Q402_MULTICHAIN_API_KEY` | live-pay (12-chain) | Paid 12-chain key. Get one at https://q402.quackai.ai/payment. Auto-routed for chains outside BNB + Avalanche AND for BNB/Avax when no Trial key is set. Cap: 20 recipients per batch. Required for Mode C (server-managed Agent Wallet). |
 | `Q402_PRIVATE_KEY` | Mode A | Hex private key of your MetaMask EOA. Signer for local Mode A. **Never share. Never paste in chat.** |
 | `Q402_AGENTIC_PRIVATE_KEY` | Mode B | Exported Agent Wallet hex private key from the dashboard (Agent tab → Export). Signs locally, but the signer is your dedicated Agent Wallet - MetaMask is never touched. **Never share. Never paste in chat.** |
 | `Q402_AGENT_WALLET_ADDRESS` | Mode C (optional) | When you have multiple server-managed Agent Wallets (max 10 per owner), set this to the lowercased 0x… address of the one Q402 should spend from. Omit to use the default wallet. Ignored in Modes A/B. |

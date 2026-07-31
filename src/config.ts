@@ -2,7 +2,7 @@
  * Runtime configuration parsed from environment variables.
  *
  * Two-key model:
- *   Q402_TRIAL_API_KEY       BNB-only sponsored Trial key (free 2k TX).
+ *   Q402_TRIAL_API_KEY       BNB + Avalanche sponsored Trial key (free 2k TX).
  *   Q402_MULTICHAIN_API_KEY  Paid 12-chain key backed by per-chain Gas Tank.
  *   Q402_API_KEY             Legacy single-key fallback. Used for both
  *                            scopes when the two scoped envs are unset.
@@ -210,7 +210,7 @@ export type KeyScope = "trial" | "multichain";
 export type KeyScopeRequest = "auto" | KeyScope;
 
 export interface Config {
-  /** Trial-scope key (BNB-only). Null if Q402_TRIAL_API_KEY unset. */
+  /** Trial-scope key (BNB + Avalanche). Null if Q402_TRIAL_API_KEY unset. */
   trialApiKey: string | null;
   /** Multichain-scope key (12 chains). Null if Q402_MULTICHAIN_API_KEY unset. */
   multichainApiKey: string | null;
@@ -428,11 +428,21 @@ export function detectAgenticModes(c: Config = CONFIG): AgenticModes {
 export const CONFIG = loadConfig();
 
 /**
+ * Chains the free Trial covers (gasless, Q402-sponsored): BNB Chain +
+ * Avalanche. Every other chain needs the paid Multichain key. Mirrors the
+ * q402-landing send-route free-tier exemption (BNB + Avax).
+ */
+export const TRIAL_CHAINS = ["bnb", "avax"] as const;
+export function isTrialChain(chain: string): boolean {
+  return (TRIAL_CHAINS as readonly string[]).includes(chain);
+}
+
+/**
  * Resolve the API key to use for a (chain, scope) request.
  *
  * Auto routing rule (when scope === "auto"):
- *   - chain === "bnb" AND Q402_TRIAL_API_KEY set  → trial
- *   - otherwise                                    → multichain
+ *   - chain ∈ {bnb, avax} AND Q402_TRIAL_API_KEY set → trial
+ *   - otherwise                                       → multichain
  *   - if the chosen scope has no key, fall back to legacyApiKey
  *
  * This rule applies UNIFORMLY to `q402_pay` (single) AND `q402_batch_pay`
@@ -453,9 +463,9 @@ export const CONFIG = loadConfig();
  * the load-bearing user-safety guards.
  *
  * The one trial-specific guard kept here is the chain check: `keyScope: "trial"`
- * with a non-BNB chain is an impossible combination - even with a valid Trial
- * key the server would 403 with TRIAL_BNB_ONLY. We surface that intent error
- * via `sandboxReason` (still no throw) so the agent sees a clear hint.
+ * with a chain outside {bnb, avax} is an impossible combination - even with a
+ * valid Trial key the server would 402 with TRIAL_BNB_ONLY. We surface that
+ * intent error via `sandboxReason` (still no throw) so the agent sees a hint.
  */
 export interface ResolvedKey {
   /** Null when no live key is available; caller falls back to sandbox. */
@@ -474,16 +484,16 @@ export function resolveApiKey(
 ): ResolvedKey {
   const effectiveScope: KeyScope =
     scope === "auto"
-      ? // Unified rule for single + batch: BNB prefers Trial when set,
-        // everything else uses Multichain. Batch cap ambiguity is handled
-        // in batch-pay.ts BEFORE this resolver runs.
-        chain === "bnb" && CONFIG.trialApiKey
+      ? // Unified rule for single + batch: the free-tier chains (BNB +
+        // Avalanche) prefer Trial when set, everything else uses Multichain.
+        // Batch cap ambiguity is handled in batch-pay.ts BEFORE this resolver.
+        isTrialChain(chain) && CONFIG.trialApiKey
         ? "trial"
         : "multichain"
       : scope;
 
   if (effectiveScope === "trial") {
-    if (chain !== "bnb") {
+    if (!isTrialChain(chain)) {
       // Impossible scope. No live key resolves; sandbox with a clear hint.
       return {
         apiKey: null,
@@ -491,8 +501,8 @@ export function resolveApiKey(
         fromLegacyFallback: false,
         sandboxReason:
           `keyScope="trial" requested but chain="${chain}" - Trial keys support ` +
-          `BNB Chain only. Drop keyScope (or set keyScope="multichain") to use ` +
-          `the paid Multichain key on ${chain}.`,
+          `BNB Chain + Avalanche only. Drop keyScope (or set keyScope="multichain") ` +
+          `to use the paid Multichain key on ${chain}.`,
       };
     }
     const key = CONFIG.trialApiKey ?? CONFIG.legacyApiKey;

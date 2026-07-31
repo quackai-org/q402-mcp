@@ -40,6 +40,7 @@ import { z } from "zod";
 import { getChain, tokenFor } from "../chains.js";
 import {
   CONFIG,
+  isTrialChain,
   resolveApiKey,
   isLiveModeFor,
   isValidPrivateKey,
@@ -102,12 +103,12 @@ export const BatchPayInputSchema = z.object({
     .enum(["auto", "trial", "multichain"])
     .optional()
     .describe(
-      'Which API key to use. "auto" (default): chain="bnb" + ' +
+      'Which API key to use. "auto" (default): chain ∈ {bnb, avax} + ' +
         'Q402_TRIAL_API_KEY set → Trial; else Multichain - same rule as ' +
         'q402_pay. When auto would land on Trial AND recipients.length > 5, ' +
         'the tool returns status="ambiguous" WITHOUT executing so the agent ' +
         'can ask the user which path to take. Use keyScope="trial" to force ' +
-        'the BNB-only sponsored key (≤5 recipients). keyScope="multichain" ' +
+        'the BNB + Avalanche sponsored key (≤5 recipients). keyScope="multichain" ' +
         'forces the paid 12-chain key (≤20 recipients).',
     ),
   walletMode: z
@@ -469,7 +470,7 @@ export async function runBatchPay(input: BatchPayInput): Promise<BatchPaySummary
       guardsApplied,
       senderWallet,
       setupHint:
-        `keyScope="trial" caps at ${RECIPIENT_LIMIT_TRIAL} recipients per call (BNB-only sponsored). ` +
+        `keyScope="trial" caps at ${RECIPIENT_LIMIT_TRIAL} recipients per call (BNB + Avalanche sponsored). ` +
         `Your batch has ${input.recipients.length}. Either trim to the first ${RECIPIENT_LIMIT_TRIAL} ` +
         `recipients and re-invoke with keyScope="trial", or send the full batch on the paid ` +
         `Multichain key by re-invoking with keyScope="multichain" (charges the paid pool + Gas Tank, ` +
@@ -479,7 +480,7 @@ export async function runBatchPay(input: BatchPayInput): Promise<BatchPaySummary
 
   if (
     scopeRequest === "auto" &&
-    input.chain === "bnb" &&
+    isTrialChain(input.chain) &&
     CONFIG.trialApiKey &&
     input.recipients.length > RECIPIENT_LIMIT_TRIAL
   ) {
@@ -491,7 +492,7 @@ export async function runBatchPay(input: BatchPayInput): Promise<BatchPaySummary
       guardsApplied,
       senderWallet,
       setupHint:
-        `Batch of ${input.recipients.length} on BNB exceeds the Trial cap of ${RECIPIENT_LIMIT_TRIAL}. ` +
+        `Batch of ${input.recipients.length} on ${input.chain} exceeds the Trial cap of ${RECIPIENT_LIMIT_TRIAL}. ` +
         `Ask the user to pick one and re-invoke q402_batch_pay with explicit keyScope:\n` +
         `  • keyScope="trial" - keep only the first ${RECIPIENT_LIMIT_TRIAL} recipients ` +
         `(free, sponsored). Drop the remaining ${overflow}.\n` +
@@ -836,7 +837,7 @@ function describeSandboxReason(resolvedKey: string, scope: KeyScope): string {
   }
   if (noEnable) missing.push("Q402_ENABLE_REAL_PAYMENTS=1");
   if (missing.length === 0) return "Sandbox mode active (no env state change needed).";
-  // Route to the right tier: trial scope → /event (free 2k TX, BNB only),
+  // Route to the right tier: trial scope → /event (free 2k TX, BNB + Avalanche),
   // multichain scope → /payment (paid plan, all 12 chains).
   const tier = scope === "trial" ? "Free Trial" : "Multichain";
   const url  =
