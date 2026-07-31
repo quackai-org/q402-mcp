@@ -46,6 +46,13 @@ export interface PayResult {
   token: "USDC" | "USDT" | "RLUSD" | "Q" | "USDG";
   chain: string;
   method: string;
+  /** Trust Receipt id (rct_…) the relay minted for this settlement, when one
+   *  was created. Hand this to a counterparty's verify / reconcile API — many
+   *  expect the off-chain receiptId, NOT the on-chain txHash (e.g. a merchant's
+   *  /transfers/verify step). Absent on sandbox + when no receipt was minted. */
+  receiptId?: string;
+  /** Public Trust Receipt page URL (…/receipt/rct_…) for the same settlement. */
+  receiptUrl?: string;
   /** Set on sandbox / simulated responses so the agent can disclose mode. */
   mode?: "sandbox" | "live";
   explorerUrl?: string | null;
