@@ -671,6 +671,8 @@ export async function runPay(input: PayInput): Promise<PaySummary> {
           failedLegs: failedCount,
           ...(isPartial && !isComplete ? { partial: true } : {}),
           ...(replayed ? { replayed: true } : {}),
+          ...((data as { receiptId?: string }).receiptId ? { receiptId: (data as { receiptId?: string }).receiptId } : {}),
+          ...((data as { receiptUrl?: string }).receiptUrl ? { receiptUrl: (data as { receiptUrl?: string }).receiptUrl } : {}),
           explorerUrl: txHash ? undefined : null,
         } satisfies PayResult,
         guardsApplied: [
@@ -755,6 +757,10 @@ export async function runPay(input: PayInput): Promise<PaySummary> {
     // "q402". stringify match is nesting-agnostic (the code may arrive in
     // `error`, a nested relay body, or a forwarded message).
     const x402Blocked = !success && JSON.stringify(data).includes("X402_WALLET_DELEGATED");
+    // Surface the Trust Receipt id/url the relay minted — many counterparties'
+    // verify APIs take the receiptId (rct_…), not the on-chain txHash.
+    const receiptId = (data as { receiptId?: string }).receiptId;
+    const receiptUrl = (data as { receiptUrl?: string }).receiptUrl;
     return {
       result: {
         success,
@@ -764,6 +770,8 @@ export async function runPay(input: PayInput): Promise<PaySummary> {
         token: input.token,
         chain: chain.key,
         method: input.rail === "x402" ? "x402" : "q402",
+        ...(receiptId ? { receiptId } : {}),
+        ...(receiptUrl ? { receiptUrl } : {}),
         explorerUrl: txHash ? undefined : null,
       } satisfies PayResult,
       guardsApplied: [
