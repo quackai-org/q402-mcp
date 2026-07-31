@@ -115,9 +115,9 @@ export const QUOTE_TOOL = {
     "for (avax, bnb, eth, xlayer, stable, mantle, injective, monad, scroll, arbitrum, base, robinhood). " +
     "Returns the full chain × token matrix unconditionally - this tool does " +
     "not read any API key, so it can't filter by trial vs multichain scope. " +
-    "When the caller intends to settle with a Trial API Key, treat any non-BNB " +
-    "row as informational only (q402_pay will return 403 TRIAL_BNB_ONLY for " +
-    "those). Includes RLUSD on Ethereum. Read-only - " +
+    "When the caller intends to settle with a Trial API Key, treat any row " +
+    "outside BNB Chain + Avalanche as informational only (q402_pay returns " +
+    "TRIAL_BNB_ONLY for those). Includes RLUSD on Ethereum. Read-only - " +
     "no API key needed, no funds move. Use this before q402_pay so the user " +
     "can see what's available and pick a chain.",
   // Plain JSON schema mirroring the Zod schema above; MCP servers receive parameters as JSON.

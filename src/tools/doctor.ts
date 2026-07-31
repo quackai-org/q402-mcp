@@ -261,7 +261,7 @@ const ENV_FILE_TEMPLATE = `# ---------------------------------------------------
 # ----------------------------------------------------------------------
 # API KEY - paste on the right of \`=\` (one OR both for auto-routing)
 # ----------------------------------------------------------------------
-# Free Trial:        BNB Chain only, 2,000 sponsored TX
+# Free Trial:        BNB Chain + Avalanche, 2,000 sponsored TX
 # Get one at:        https://q402.quackai.ai/event
 Q402_TRIAL_API_KEY=
 
@@ -638,7 +638,7 @@ export async function runDoctor(): Promise<DoctorReport> {
   const envState: Record<string, EnvSlot> = {
     Q402_TRIAL_API_KEY: envSlot(
       "Q402_TRIAL_API_KEY",
-      "Free Trial - BNB only, 2,000 sponsored TX. Get at https://q402.quackai.ai/event",
+      "Free Trial - BNB Chain + Avalanche, 2,000 sponsored TX. Get at https://q402.quackai.ai/event",
     ),
     Q402_MULTICHAIN_API_KEY: envSlot(
       "Q402_MULTICHAIN_API_KEY",
@@ -879,7 +879,7 @@ export async function runDoctor(): Promise<DoctorReport> {
           ? [
               "Q402 is installed. To start sending payments you need (1) an API key and (2) a wallet to sign with.",
               "I'll create a settings file for you - say yes and I'll set it up + open it in your editor.",
-              "Get a free API key at https://q402.quackai.ai/event (BNB Chain only, 2,000 sponsored transactions).",
+              "Get a free API key at https://q402.quackai.ai/event (BNB Chain + Avalanche, 2,000 sponsored transactions).",
               "There are 3 wallet modes - pick one:" +
                 " (A) your MetaMask EOA's private key (simplest, but your account will be marked 'Smart account' after first payment);" +
                 " (B) export an Agent Wallet's private key from the dashboard (keeps your MetaMask untouched, recommended for AI agents);" +
@@ -1056,7 +1056,7 @@ export async function runDoctor(): Promise<DoctorReport> {
           ? "You're configured for Mode B - your exported Agent Wallet PK signs locally. Your MetaMask is never touched."
           : recommendedMode === "A"
             ? "You're configured for Mode A - your MetaMask EOA signs directly. EIP-7702 delegates it to Q402 for the call. (If the Smart-account banner in MetaMask is a concern, switch to Mode B or C.)"
-            : "No signing path configured yet. Easiest: set Q402_MULTICHAIN_API_KEY (paid, recommended) - covers one-shot pays and recurring schedules across all 12 chains. Q402_TRIAL_API_KEY alone unlocks one-shot pays on BNB only; recurring requires the paid key.",
+            : "No signing path configured yet. Easiest: set Q402_MULTICHAIN_API_KEY (paid, recommended) - covers one-shot pays and recurring schedules across all 12 chains. Q402_TRIAL_API_KEY alone unlocks one-shot pays on BNB + Avalanche; recurring requires the paid key.",
     /** All three modes documented so the AI can answer "what are my
      *  options?" without re-deriving from envState. */
     catalog: [
