@@ -439,16 +439,23 @@ export async function runBatchPay(input: BatchPayInput): Promise<BatchPaySummary
   // they want - and re-call with explicit keyScope (or split via two calls).
   //
   // EXCEPTION for walletMode="agentic-server": the server-mediated batch
-  // endpoint (/api/wallet/agentic/batch) is paid-only - it rejects Trial
-  // keys outright. If `auto` resolved to Trial here (BNB + ≤
-  // RECIPIENT_LIMIT_TRIAL), Mode C would later 402 server-side and the
-  // user would see "I have a paid key but my batch failed". Force
-  // multichain when the user committed to Mode C - the explicit
-  // user-supplied scope (`trial` / `multichain`) is still respected.
+  // endpoint (/api/wallet/agentic/batch) prefers the paid key. It DOES accept
+  // a trial batch, but only on the sponsored chains (BNB + Avalanche) and only
+  // up to RECIPIENT_LIMIT_TRIAL rows — so `auto` forces multichain whenever a
+  // paid key exists or the request falls outside that trial envelope,
+  // otherwise Mode C would 402 server-side and the user would see "I have a
+  // paid key but my batch failed". A trial-only user batching inside the
+  // envelope routes to trial instead of dead-ending. Explicit user-supplied
+  // scope (`trial` / `multichain`) is always respected.
   const rawScopeRequest: KeyScopeRequest = input.keyScope ?? "auto";
+  const trialBatchViable =
+    !CONFIG.multichainApiKey &&
+    !!CONFIG.trialApiKey &&
+    isTrialChain(input.chain) &&
+    input.recipients.length <= RECIPIENT_LIMIT_TRIAL;
   const scopeRequest: KeyScopeRequest =
     effectiveMode === "agentic-server" && rawScopeRequest === "auto"
-      ? "multichain"
+      ? (trialBatchViable ? "trial" : "multichain")
       : rawScopeRequest;
 
   // Explicit trial scope overflow - reject BEFORE the per-row signing
@@ -686,19 +693,27 @@ export async function runBatchPay(input: BatchPayInput): Promise<BatchPaySummary
           ? "aborted"
           : "partial_failure";
 
+    // Report the scope the batch ACTUALLY settled under. Server-mediated
+    // batches used to be paid-only, so this was hard-coded to
+    // "multichain"/"paid" — the server now also accepts a trial batch on the
+    // sponsored chains (BNB + Avalanche, ≤5 rows), and mislabeling that as
+    // paid tells the user the wrong pool was charged.
+    const settledScope = resolved.scope === "trial" ? "trial" : "paid";
+    const settledCap =
+      settledScope === "trial" ? RECIPIENT_LIMIT_TRIAL : RECIPIENT_LIMIT_PAID;
     guardsApplied.push(
       "mode=live",
       "wallet=agentic-server",
-      "scope=multichain (server enforced)",
-      `batch_size=${serverResults.length}/${RECIPIENT_LIMIT_PAID}`,
+      `scope=${resolved.scope} (server enforced)`,
+      `batch_size=${serverResults.length}/${settledCap}`,
     );
     return {
       mode: "live",
       status,
       result: {
         ok: failed === 0,
-        scope: "paid",
-        limit: RECIPIENT_LIMIT_PAID,
+        scope: settledScope,
+        limit: settledCap,
         totalSuccess: settled,
         totalFailed: failed,
         aborted: isAborted,
@@ -865,7 +880,7 @@ export const BATCH_PAY_TOOL = {
     "Send gasless payments to MULTIPLE recipients on a single chain × token in one call. " +
     "Auto-routing follows the same rule as q402_pay: chain ∈ {bnb, avax} + Q402_TRIAL_API_KEY set " +
     "→ Trial; else Multichain. " +
-    `Trial keys: max ${RECIPIENT_LIMIT_TRIAL} recipients per call, BNB Chain + Avalanche, USDC/USDT. ` +
+    `Trial keys: max ${RECIPIENT_LIMIT_TRIAL} recipients per call, BNB Chain (USDC/USDT) + Avalanche (USDC only). ` +
     `Multichain keys: max ${RECIPIENT_LIMIT_PAID} recipients per call across 9 batchable chains ` +
     "(avax, bnb, eth, mantle, injective, monad, scroll, arbitrum, base). xlayer + stable are NOT batchable - use q402_pay in a loop. " +
     "AMBIGUITY GATE: when auto would land on Trial AND recipients.length > 5, the tool returns " +
