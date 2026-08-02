@@ -282,11 +282,6 @@ async function main(): Promise<void> {
       REDSTONE_TRIGGER_CREATE_TOOL,
       REDSTONE_TRIGGER_LIST_TOOL,
       REDSTONE_TRIGGER_CANCEL_TOOL,
-      // Travala hotel booking (Phase 1: mock full-chain; live behind TRAVEL_MODE=live)
-      TRAVEL_SEARCH_HOTELS_TOOL,
-      TRAVEL_GET_QUOTE_TOOL,
-      TRAVEL_BOOK_HOTEL_TOOL,
-      TRAVEL_GET_BOOKING_STATUS_TOOL,
     ],
   }));
 
