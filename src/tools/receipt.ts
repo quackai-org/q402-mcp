@@ -27,9 +27,10 @@
 import { z } from "zod";
 import { keccak256, toUtf8Bytes, getBytes, verifyMessage } from "ethers";
 import { CONFIG } from "../config.js";
+import { getSandboxReceipt } from "../sandbox-store.js";
 
 // Public-shaped fields. Mirrors app/lib/receipt-shared.ts on the server side.
-const ReceiptShape = z.object({
+export const ReceiptShape = z.object({
   receiptId:      z.string(),
   createdAt:      z.string(),
   txHash:         z.string(),
@@ -40,7 +41,7 @@ const ReceiptShape = z.object({
   token:          z.enum(["USDC", "USDT", "RLUSD", "USDG"]),
   tokenAmount:    z.string(),
   tokenAmountRaw: z.string(),
-  method:         z.enum(["eip7702", "eip3009", "eip7702_xlayer", "eip7702_stable"]),
+  method:         z.enum(["eip7702", "eip3009", "eip7702_xlayer", "eip7702_stable", "sandbox"]),
   gasCostNative:  z.string().optional(),
   apiKeyTier:     z.string().optional(),       // hidden by default in publicView
   showTier:       z.boolean(),
@@ -196,6 +197,43 @@ export async function runReceipt(input: ReceiptInput): Promise<ReceiptSummary> {
     return {
       receiptId: null, url: null, pageUrl: null, verified: false,
       explorerUrl: null, receipt: null, notFound: true,
+    };
+  }
+
+  // Local sandbox store: check before any relay fetch.
+  // On hit, return with sandbox:true, verified:false, explorerUrl:null.
+  // On miss, fall through to the live relay path (real receipts unaffected).
+  const sandboxRecord = getSandboxReceipt(receiptId);
+  if (sandboxRecord) {
+    const sandboxReceipt: Receipt = {
+      receiptId:      sandboxRecord.receiptId,
+      createdAt:      sandboxRecord.createdAt,
+      txHash:         sandboxRecord.txHash,
+      chain:          sandboxRecord.chain,
+      payer:          sandboxRecord.payer,
+      recipient:      sandboxRecord.recipient,
+      token:          sandboxRecord.token as Receipt["token"],
+      tokenAmount:    sandboxRecord.tokenAmount,
+      tokenAmountRaw: sandboxRecord.tokenAmountRaw,
+      method:         "sandbox",
+      showTier:       false,
+      sandbox:        true,
+      webhook: {
+        configured:     false,
+        event:          "",
+        deliveryStatus: "not_configured",
+      },
+      signature: "",
+      signedBy:  "",
+      signedAt:  sandboxRecord.createdAt,
+    };
+    return {
+      receiptId:   sandboxRecord.receiptId,
+      url:         null,
+      pageUrl:     null,
+      verified:    false,
+      explorerUrl: null,
+      receipt:     sandboxReceipt,
     };
   }
 
