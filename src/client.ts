@@ -18,6 +18,7 @@ import {
 } from "ethers";
 import type { ChainConfig } from "./chains.js";
 import { tokenFor } from "./chains.js";
+import { saveSandboxReceipt } from "./sandbox-store.js";
 
 export interface PayResult {
   /**
@@ -610,16 +611,39 @@ export interface BatchPayResult {
  * Sandbox path - signs nothing on-chain, returns a deterministic-looking
  * fake hash. Used when API key is absent / test-tier, real-payments flag
  * is off, or a private key is missing.
+ *
+ * Mints a local-only sandbox Trust Receipt (rct_ + 24 hex) and persists it
+ * to ~/.q402/sandbox-receipts.json so q402_receipt can look it up without
+ * touching the live relay. The receipt is flagged sandbox:true, verified:false,
+ * explorerUrl:null — no relayer signature is faked.
  */
 export function sandboxPay(
   chain: ChainConfig,
   input: PayInput,
+  payer = "0x0000000000000000000000000000000000000000",
 ): PayResult {
   const tokenCfg = tokenFor(chain, input.token);
-  const tokenAmount = toRawAmount(input.amount, tokenCfg.decimals);
+  const tokenAmountRaw = toRawAmount(input.amount, tokenCfg.decimals);
   // 32-byte random hex - visually indistinguishable from a real tx hash but
   // never collides with one because we don't emit any transaction.
   const fakeHash = "0x" + hexlify(randomBytes(32)).slice(2);
+  // 24-byte random hex receipt id, prefixed with rct_
+  const receiptId = "rct_" + hexlify(randomBytes(12)).slice(2);
+  const createdAt = new Date().toISOString();
+
+  saveSandboxReceipt({
+    receiptId,
+    createdAt,
+    txHash: fakeHash,
+    chain: chain.key,
+    payer,
+    recipient: input.to,
+    token: input.token,
+    tokenAmount: input.amount,
+    tokenAmountRaw,
+    method: "sandbox",
+    sandbox: true,
+  });
 
   return {
     // `success: false` because no funds moved. The `sandbox: true` flag is
@@ -628,11 +652,12 @@ export function sandboxPay(
     success: false,
     sandbox: true,
     txHash: fakeHash,
-    tokenAmount,
+    tokenAmount: input.amount,
     token: input.token,
     chain: chain.key,
     method: "sandbox",
     mode: "sandbox",
     explorerUrl: null,
+    receiptId,
   };
 }
