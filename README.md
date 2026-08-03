@@ -206,6 +206,9 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 | `q402_bridge_send` | live mode | Execute a CCIP bridge from the user's Agent Wallet. Mode C only (server-managed). Sandbox-by-default; `sandbox: false` + live Multichain key + `Q402_ENABLE_REAL_PAYMENTS=1` fires a real on-chain bridge. |
 | `q402_bridge_history` | not yet wired | Pointer to the dashboard. Returns `{ implemented: false, dashboardUrl, dashboardPath }` - read-only guidance until owner-sig auth lands in MCP. |
 | `q402_bridge_gas_tank` | not yet wired | Static guidance + dashboard pointer for the Bridge Gas Tank top-up flow. Live balance lookup needs owner-sig auth (dashboard for now). |
+| `q402_oft_quote` | none | Quote the LayerZero fee for bridging USDT0 across the OFT set (eth/arbitrum/mantle/monad/xlayer). Returns native messaging fee + delivered amount. Companion to `q402_bridge_quote` (CCIP/USDC). |
+| `q402_oft_send` | live mode | Bridge USDT0 via LayerZero OFT from the Agent Wallet to the same address on the destination chain. Mode C (server-managed). Sandbox-by-default; `confirm: true` + live Multichain key + `Q402_ENABLE_REAL_PAYMENTS=1` fires a real bridge. |
+| `q402_oft_history` | not yet wired | Pointer to the dashboard for LayerZero OFT bridge history. Returns `{ implemented: false, dashboardUrl }` - read-only guidance until owner-sig auth lands in MCP. |
 | **Yield** | | |
 | `q402_yield_reserves` | none | List Q402 Yield lending markets - protocol, chain, asset, market address, supply APY. Curated lending markets per chain (Aave/Lista on BNB, Morpho on Base); each market reports its own venue. |
 | `q402_yield_positions` | api key | Show the Agent Wallet's open Q402 Yield positions (balance, principal, accrued interest, APY) + total supplied in USD. Mode C. |
