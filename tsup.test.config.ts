@@ -1,7 +1,11 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/travala/travala.test.ts", "src/sandbox-receipt.test.ts"],
+  entry: [
+    "src/travala/travala.test.ts",
+    "src/travala/live-adapter.test.ts",
+    "src/sandbox-receipt.test.ts",
+  ],
   format: ["esm"],
   platform: "node",
   target: "node22",

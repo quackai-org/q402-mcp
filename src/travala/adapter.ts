@@ -71,6 +71,16 @@ export interface BookParams {
   checkOut: string;
   guests?: number;
   guestName: string;
+  // Extended fields for Travala live API (travala_book tool contract)
+  packageId?: string;
+  sessionId?: string;
+  roomTypeId?: string;
+  roomName?: string;
+  price?: number;
+  currency?: string;
+  customer?: Record<string, unknown>;
+  // Payment consent token for the 402 payment leg (live adapter only)
+  paymentConsentToken?: string;
 }
 
 export interface TravalaAdapter {
@@ -82,4 +92,54 @@ export interface TravalaAdapter {
 
 export function getTravelMode(): "mock" | "live" {
   return process.env["TRAVEL_MODE"] === "live" ? "live" : "mock";
+}
+
+// ── 402 Payment leg types ────────────────────────────────────────────────────
+
+/**
+ * Structured representation of a Travala 402 Payment Required response.
+ *
+ * next_action contract (to be confirmed with a real Travala 402 sample):
+ *   next_action.type?:      payment type identifier (e.g. "crypto_payment")
+ *   next_action.amount?:    amount to pay (number)
+ *   next_action.currency?:  currency code (e.g. "USDC")
+ *   next_action.recipient?: recipient address (hex string on Base)
+ *   Further fields: TBD from actual travala_book 402 response.
+ *
+ * All fields are passed through as-is (no fabrication) per Phase A spec.
+ */
+export interface PaymentRequired {
+  status: 402;
+  next_action: Record<string, unknown>;
+}
+
+export interface PaymentLegResult {
+  success: boolean;
+  /** Which network the payment leg would target. "none" = not configured. */
+  network?: "none" | "testnet" | "mainnet";
+  error?: string;
+  txHash?: string;
+}
+
+export type PaymentLeg = (payment: PaymentRequired) => Promise<PaymentLegResult>;
+
+/**
+ * Thrown by LiveAdapter.bookHotel() when Travala returns HTTP 402.
+ * Callers (runBookHotel) catch this to surface the appropriate tool status.
+ *
+ * Cases:
+ *   needsConsent set    → caller should return needs_confirmation to the agent
+ *   rejectedReason set  → caller should return rejected (spend limit exceeded)
+ *   paymentLegResult set → payment leg ran; surface the result (error in Phase A)
+ */
+export class TravalaPaymentRequiredError extends Error {
+  constructor(
+    public readonly paymentRequired: PaymentRequired,
+    public readonly needsConsent?: { preview: string; consentToken: string },
+    public readonly rejectedReason?: string,
+    public readonly paymentLegResult?: PaymentLegResult,
+  ) {
+    super("Travala booking requires payment (HTTP 402)");
+    this.name = "TravalaPaymentRequiredError";
+  }
 }
