@@ -74,7 +74,7 @@ export const PayInputSchema = z.object({
       "Which wallet to spend from:\n" +
         '  "eoa"              - the user\'s real MetaMask/OKX EOA, signed locally with Q402_PRIVATE_KEY\n' +
         '  "agentic-local"    - the Agent Wallet\'s exported private key (Q402_AGENTIC_PRIVATE_KEY)\n' +
-        '  "agentic-server"   - the server-managed Agent Wallet (Q402 holds the key; you only need Q402_MULTICHAIN_API_KEY)\n' +
+        '  "agentic-server"   - the server-managed Agent Wallet (Q402 holds the key; one-shot payments need any live key — Trial or Multichain)\n' +
         "When MORE THAN ONE wallet is configured in the user's environment, you MUST " +
         'ask the user which to use before calling - do NOT guess. Phrase: "You have ' +
         "multiple wallets set up - pay from your EOA, or your Agent Wallet?\" " +
@@ -1040,7 +1040,7 @@ export const PAY_TOOL = {
           'Which wallet to spend from. "eoa" = user\'s real MetaMask EOA ' +
           '(Q402_PRIVATE_KEY). "agentic-local" = Agent Wallet exported key ' +
           '(Q402_AGENTIC_PRIVATE_KEY). "agentic-server" = server-managed ' +
-          "Agent Wallet (Q402 holds the key; only the apiKey is needed). " +
+          "Agent Wallet (Q402 holds the key; one-shot payments need any live key — Trial or Multichain). " +
           "When MULTIPLE wallets are configured the tool refuses without this " +
           "arg and returns ambiguousWalletChoice for the user to pick.",
       },
