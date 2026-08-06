@@ -209,7 +209,7 @@ export interface PaySummary {
   };
 }
 
-function maxAmountGuard(amount: string, cap: number): void {
+export function maxAmountGuard(amount: string, cap: number): void {
   // amount comes pre-validated as `\d+(\.\d+)?` - Number() is safe here for
   // a comparison against the per-call USD cap (the cap is intentionally a
   // small UI-friendly value, so float precision is irrelevant for the check).
