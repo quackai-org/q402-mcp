@@ -7,9 +7,10 @@
  * Usage:
  *   X402_PRIVATE_KEY=0x<64-hex> npx ts-node scripts/x402-fetch-e2e.ts [URL]
  *
- * Default URL: https://x402.org/protected (Coinbase x402 example endpoint, ~$0.01 USDC).
+ * Default URL: https://weather.payapi.market/current (real x402 ecosystem endpoint,
+ * uses POST + JSON body; accepts network=eip155:8453 / base / base-mainnet + Base USDC).
  * You can substitute any Base x402 endpoint that returns a valid 402 with
- * scheme=exact / network=base / asset=Base USDC.
+ * scheme=exact / network=base|base-mainnet|eip155:8453 / asset=Base USDC.
  *
  * NOTE: This script sends a REAL on-chain USDC payment on Base mainnet.
  *       Run only when you intend to spend real funds.
@@ -59,8 +60,11 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const targetUrl = process.argv[2] ?? "https://x402.org/protected";
-  const method = "GET";
+  const targetUrl = process.argv[2] ?? "https://weather.payapi.market/current";
+  // weather.payapi.market/current requires POST with a JSON body; fall back to GET for other URLs.
+  const isWeatherDefault = targetUrl === "https://weather.payapi.market/current";
+  const method = isWeatherDefault ? "POST" : "GET";
+  const requestBody = isWeatherDefault ? JSON.stringify({ location: "San Francisco" }) : undefined;
 
   const wallet = new Wallet(privateKey);
   const walletAddress = await wallet.getAddress();
@@ -78,7 +82,11 @@ async function main(): Promise<void> {
   log("Step 1: initial fetch");
   let resp1: Response;
   try {
-    resp1 = await fetch(targetUrl, { method });
+    resp1 = await fetch(targetUrl, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      ...(requestBody !== undefined ? { body: requestBody } : {}),
+    });
   } catch (e) {
     log(`FAIL: initial fetch threw: ${e instanceof Error ? e.message : String(e)}`);
     process.exit(1);
@@ -122,11 +130,11 @@ async function main(): Promise<void> {
   // ── Step 3: select supported option ───────────────────────────────────────
   const req = payReq.accepts.find(
     a => a.scheme === "exact" &&
-         (a.network === "base" || a.network === "base-mainnet") &&
+         (a.network === "base" || a.network === "base-mainnet" || a.network === "eip155:8453") &&
          a.asset.toLowerCase() === BASE_USDC_ADDRESS.toLowerCase(),
   );
   if (!req) {
-    log("FAIL: no supported payment option (need scheme=exact + network=base + Base USDC)");
+    log("FAIL: no supported payment option (need scheme=exact + network=base|base-mainnet|eip155:8453 + Base USDC)");
     process.exit(1);
   }
 
@@ -196,6 +204,7 @@ async function main(): Promise<void> {
         "Content-Type": "application/json",
         "X-PAYMENT": xPayment,
       },
+      ...(requestBody !== undefined ? { body: requestBody } : {}),
     });
   } catch (e) {
     log(`FAIL: retry fetch threw: ${e instanceof Error ? e.message : String(e)}`);
