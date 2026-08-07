@@ -2,7 +2,7 @@
  * Runtime configuration parsed from environment variables.
  *
  * Two-key model:
- *   Q402_TRIAL_API_KEY       BNB + Avalanche sponsored Trial key (free 2k TX).
+ *   Q402_TRIAL_API_KEY       BNB + Avalanche sponsored Trial key (free 500 TX).
  *   Q402_MULTICHAIN_API_KEY  Paid 12-chain key backed by per-chain Gas Tank.
  *   Q402_API_KEY             Legacy single-key fallback. Used for both
  *                            scopes when the two scoped envs are unset.

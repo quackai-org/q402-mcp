@@ -5,7 +5,7 @@
 [![npm](https://img.shields.io/npm/v/@quackai/q402-mcp.svg)](https://www.npmjs.com/package/@quackai/q402-mcp)
 [![license](https://img.shields.io/npm/l/@quackai/q402-mcp.svg)](./LICENSE)
 
-> **Free trial available**. 2,000 gasless transactions on BNB Chain + Avalanche (USDC + USDT), 30-day window, no card. One wallet signature: <https://q402.quackai.ai>.
+> **Free trial available**. 500 gasless transactions on BNB Chain + Avalanche (USDC + USDT), 30-day window, no card. One wallet signature: <https://q402.quackai.ai>.
 >
 > **Trial-scope policy:** API keys minted under the free-trial program (`plan: "trial"`) settle on BNB Chain + Avalanche (USDC gasless on both; USDT gasless on BNB) - server-side enforcement, returns `TRIAL_BNB_ONLY` for any other chain. **Paid API keys see the full 12-chain matrix at all times.**
 
@@ -112,8 +112,9 @@ Q402_PRIVATE_KEY=
 #   https://q402.quackai.ai/dashboard → Agent tab → Export
 Q402_AGENTIC_PRIVATE_KEY=
 
-# Mode C: no PK needed. Set ONLY the paid Multichain key above, leave
-# both PK lines blank. Q402 signs with the server-managed Agent Wallet.
+# Mode C: no PK needed. A Trial key also enables Mode C one-shot payments;
+# leave both PK lines blank. Q402 signs with the server-managed Agent Wallet.
+# Multichain key required for recurring, Mode C batch, and bridge/OFT.
 # Optional: pin one of your Agent Wallets when you have multiple (max 10).
 # Q402_AGENT_WALLET_ADDRESS=0x...
 
@@ -264,8 +265,9 @@ Q402_MULTICHAIN_API_KEY=           # paid 12-chain key (per-chain Gas Tank)
 # ── Signing path - pick ONE of Mode A / B / C ──
 Q402_PRIVATE_KEY=                  # Mode A: real EOA pk (0x + 64 hex)
 Q402_AGENTIC_PRIVATE_KEY=          # Mode B: exported Agent Wallet pk (from dashboard)
-# Mode C: leave both PK lines blank, set only the paid Multichain key
-# above. Q402 signs with the server-managed Agent Wallet. Optionally:
+# Mode C: leave both PK lines blank. A Trial key enables one-shot Mode C
+# payments; Multichain key required for recurring, batch, and bridge/OFT.
+# Q402 signs with the server-managed Agent Wallet. Optionally:
 # Q402_AGENT_WALLET_ADDRESS=0x...   # pin one of your wallets when you have multiple
 
 # Live mode switch:
@@ -297,7 +299,7 @@ Combined with the two-phase `consentToken` + live-mode env, a **stablecoin** pay
 | Env var | Required for | Notes |
 |---|---|---|
 | `Q402_TRIAL_API_KEY` | live-pay (BNB + Avax) | BNB + Avalanche sponsored Trial key. Free at https://q402.quackai.ai/event. Auto-routed for `chain="bnb"` / `chain="avax"` in both `q402_pay` and `q402_batch_pay` (≤5 recipients) when set. 6+ recipient trial batches return `status="ambiguous"` so the agent can ask the user how to split. |
-| `Q402_MULTICHAIN_API_KEY` | live-pay (12-chain) | Paid 12-chain key. Get one at https://q402.quackai.ai/payment. Auto-routed for chains outside BNB + Avalanche AND for BNB/Avax when no Trial key is set. Cap: 20 recipients per batch. Required for Mode C (server-managed Agent Wallet). |
+| `Q402_MULTICHAIN_API_KEY` | live-pay (12-chain) | Paid 12-chain key. Get one at https://q402.quackai.ai/payment. Auto-routed for chains outside BNB + Avalanche AND for BNB/Avax when no Trial key is set. Cap: 20 recipients per batch. Mode C one-shot pays accept Trial or Multichain; Multichain required for recurring, Mode C batch, and bridge/OFT. |
 | `Q402_PRIVATE_KEY` | Mode A | Hex private key of your MetaMask EOA. Signer for local Mode A. **Never share. Never paste in chat.** |
 | `Q402_AGENTIC_PRIVATE_KEY` | Mode B | Exported Agent Wallet hex private key from the dashboard (Agent tab → Export). Signs locally, but the signer is your dedicated Agent Wallet - MetaMask is never touched. **Never share. Never paste in chat.** |
 | `Q402_AGENT_WALLET_ADDRESS` | Mode C (optional) | When you have multiple server-managed Agent Wallets (max 10 per owner), set this to the lowercased 0x… address of the one Q402 should spend from. Omit to use the default wallet. Ignored in Modes A/B. |
