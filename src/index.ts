@@ -197,6 +197,11 @@ import {
   GetBookingStatusInputSchema,
   runGetBookingStatus,
 } from "./tools/travel-get-booking-status.js";
+import {
+  X402_FETCH_TOOL,
+  X402FetchInputSchema,
+  runX402Fetch,
+} from "./tools/x402-fetch.js";
 
 function jsonText(value: unknown): { type: "text"; text: string } {
   return { type: "text", text: JSON.stringify(value, null, 2) };
@@ -282,6 +287,9 @@ async function main(): Promise<void> {
       REDSTONE_TRIGGER_CREATE_TOOL,
       REDSTONE_TRIGGER_LIST_TOOL,
       REDSTONE_TRIGGER_CANCEL_TOOL,
+      // Generic x402 client — fetches any URL and handles HTTP 402 payment-required
+      // responses automatically (EIP-3009 Base USDC only, buyer-side only, no relay).
+      X402_FETCH_TOOL,
     ],
   }));
 
@@ -486,6 +494,10 @@ async function main(): Promise<void> {
         case "travel_get_booking_status": {
           const parsed = GetBookingStatusInputSchema.parse(args ?? {});
           return { content: [jsonText(await runGetBookingStatus(parsed))] };
+        }
+        case "q402_x402_fetch": {
+          const parsed = X402FetchInputSchema.parse(args ?? {});
+          return { content: [jsonText(await runX402Fetch(parsed))] };
         }
         default:
           return {
