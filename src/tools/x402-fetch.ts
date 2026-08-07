@@ -235,7 +235,7 @@ function isRealPaymentsEnabled(): boolean {
 function selectRequirement(accepts: X402Requirement[]): X402Requirement | null {
   return accepts.find(a =>
     a.scheme === "exact" &&
-    (a.network === "base" || a.network === "base-mainnet") &&
+    (a.network === "base" || a.network === "base-mainnet" || a.network === "eip155:8453") &&
     a.asset.toLowerCase() === BASE_USDC_ADDRESS_LC,
   ) ?? null;
 }
@@ -302,7 +302,7 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
       statusCode: 402,
       error:
         `x402: no supported payment option. ` +
-        `Only scheme=exact + network=base + asset=${BASE_USDC_ADDRESS} (Base USDC) is supported. ` +
+        `Only scheme=exact + network=base|base-mainnet|eip155:8453 + asset=${BASE_USDC_ADDRESS} (Base USDC) is supported. ` +
         `Server offered: [${seen}]`,
     };
   }
@@ -504,8 +504,9 @@ export const X402_FETCH_TOOL = {
     "TransferWithAuthorization, and retries with the X-PAYMENT header. Non-402 responses " +
     "are passed through directly, so this also serves as a regular fetch tool. " +
     "\n\n" +
-    "SUPPORTED: scheme=exact + network=base + asset=Base USDC only. Any other " +
-    "scheme/network/asset returns an explicit rejection without signing. " +
+    "SUPPORTED: scheme=exact + network=base (i.e. CAIP-2 eip155:8453; also accepted: " +
+    "base-mainnet) + asset=Base USDC only. Any other scheme/network/asset returns an " +
+    "explicit rejection without signing. " +
     "\n\n" +
     "GUARDS: per-call max-amount cap (Q402_MAX_AMOUNT_PER_CALL), per-session cumulative " +
     "cap (Q402_X402_SESSION_CAP_USD, default $5), and two-phase consent. First call without " +
