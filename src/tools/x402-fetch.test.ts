@@ -122,6 +122,19 @@ describe("AC-2: non-402 pass-through", () => {
 describe("AC-3: valid x402 v2 parsing and guard pipeline", () => {
   test("valid 402 body is parsed and returns needs_confirmation (no signing key env)", async () => {
     // Without Q402_ENABLE_REAL_PAYMENTS=1, the guard blocks before consent check.
+    // Isolate from ambient env (e.g. ~/.q402/mcp.env) so the test is hermetic on any machine.
+    //
+    // dynEnv() reads process.env[key] first, falling back to ENV (a frozen snapshot that
+    // includes file values loaded at startup). Setting to "" prevents that fallback
+    // (the ?? operator only falls back on null/undefined, not empty string), so the
+    // signing-key and live-mode checks see "no key configured" regardless of the host machine.
+    const savedPk = process.env["Q402_AGENTIC_PRIVATE_KEY"];
+    const savedPrivKey = process.env["Q402_PRIVATE_KEY"];
+    const savedEnable = process.env["Q402_ENABLE_REAL_PAYMENTS"];
+    process.env["Q402_AGENTIC_PRIVATE_KEY"] = "";
+    process.env["Q402_PRIVATE_KEY"] = "";
+    process.env["Q402_ENABLE_REAL_PAYMENTS"] = "";
+
     const restore = stubFetch([() => Promise.resolve(makeResponse(402, make402Body()))]);
     try {
       const result = await runX402Fetch({ url: "https://x402.example/api", confirm: true });
@@ -139,6 +152,12 @@ describe("AC-3: valid x402 v2 parsing and guard pipeline", () => {
       );
     } finally {
       restore();
+      if (savedPk !== undefined) process.env["Q402_AGENTIC_PRIVATE_KEY"] = savedPk;
+      else delete process.env["Q402_AGENTIC_PRIVATE_KEY"];
+      if (savedPrivKey !== undefined) process.env["Q402_PRIVATE_KEY"] = savedPrivKey;
+      else delete process.env["Q402_PRIVATE_KEY"];
+      if (savedEnable !== undefined) process.env["Q402_ENABLE_REAL_PAYMENTS"] = savedEnable;
+      else delete process.env["Q402_ENABLE_REAL_PAYMENTS"];
     }
   });
 
