@@ -122,6 +122,19 @@ describe("AC-2: non-402 pass-through", () => {
 describe("AC-3: valid x402 v2 parsing and guard pipeline", () => {
   test("valid 402 body is parsed and returns needs_confirmation (no signing key env)", async () => {
     // Without Q402_ENABLE_REAL_PAYMENTS=1, the guard blocks before consent check.
+    // Isolate from ambient env (e.g. ~/.q402/mcp.env) so the test is hermetic on any machine.
+    //
+    // dynEnv() reads process.env[key] first, falling back to ENV (a frozen snapshot that
+    // includes file values loaded at startup). Setting to "" prevents that fallback
+    // (the ?? operator only falls back on null/undefined, not empty string), so the
+    // signing-key and live-mode checks see "no key configured" regardless of the host machine.
+    const savedPk = process.env["Q402_AGENTIC_PRIVATE_KEY"];
+    const savedPrivKey = process.env["Q402_PRIVATE_KEY"];
+    const savedEnable = process.env["Q402_ENABLE_REAL_PAYMENTS"];
+    process.env["Q402_AGENTIC_PRIVATE_KEY"] = "";
+    process.env["Q402_PRIVATE_KEY"] = "";
+    process.env["Q402_ENABLE_REAL_PAYMENTS"] = "";
+
     const restore = stubFetch([() => Promise.resolve(makeResponse(402, make402Body()))]);
     try {
       const result = await runX402Fetch({ url: "https://x402.example/api", confirm: true });
@@ -139,6 +152,12 @@ describe("AC-3: valid x402 v2 parsing and guard pipeline", () => {
       );
     } finally {
       restore();
+      if (savedPk !== undefined) process.env["Q402_AGENTIC_PRIVATE_KEY"] = savedPk;
+      else delete process.env["Q402_AGENTIC_PRIVATE_KEY"];
+      if (savedPrivKey !== undefined) process.env["Q402_PRIVATE_KEY"] = savedPrivKey;
+      else delete process.env["Q402_PRIVATE_KEY"];
+      if (savedEnable !== undefined) process.env["Q402_ENABLE_REAL_PAYMENTS"] = savedEnable;
+      else delete process.env["Q402_ENABLE_REAL_PAYMENTS"];
     }
   });
 
@@ -244,6 +263,126 @@ describe("AC-4: 402 parsing rejection", () => {
       );
     } finally {
       restore();
+    }
+  });
+});
+
+// ── AC-1: CAIP-2 eip155:8453 accepted ─────────────────────────────────────────
+
+describe("AC-1: eip155:8453 is accepted as a valid network", () => {
+  test("network=eip155:8453 is selected and does not return no supported payment option", async () => {
+    const restore = stubFetch([
+      () => Promise.resolve(makeResponse(402, make402Body({ network: "eip155:8453" }))),
+    ]);
+    try {
+      const result = await runX402Fetch({ url: "https://x402.example/api", confirm: true });
+      assert.ok(result.statusCode === 402, "statusCode is 402 (gated by sandbox/key, not rejection)");
+      assert.ok(
+        !result.error?.includes("no supported payment option"),
+        `eip155:8453 must be accepted, got: ${result.error}`,
+      );
+      assert.ok(
+        !(result.error?.includes("malformed") || result.error?.includes("valid JSON")),
+        `must not be a parse error: ${result.error}`,
+      );
+    } finally {
+      restore();
+    }
+  });
+});
+
+// ── AC-2: backward-compatibility — base and base-mainnet still accepted ────────
+
+describe("AC-2: base and base-mainnet still accepted (no regression)", () => {
+  test("network=base is accepted", async () => {
+    const restore = stubFetch([
+      () => Promise.resolve(makeResponse(402, make402Body({ network: "base" }))),
+    ]);
+    try {
+      const result = await runX402Fetch({ url: "https://x402.example/api", confirm: true });
+      assert.ok(
+        !result.error?.includes("no supported payment option"),
+        `network=base must still be accepted: ${result.error}`,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test("network=base-mainnet is accepted", async () => {
+    const restore = stubFetch([
+      () => Promise.resolve(makeResponse(402, make402Body({ network: "base-mainnet" }))),
+    ]);
+    try {
+      const result = await runX402Fetch({ url: "https://x402.example/api", confirm: true });
+      assert.ok(
+        !result.error?.includes("no supported payment option"),
+        `network=base-mainnet must still be accepted: ${result.error}`,
+      );
+    } finally {
+      restore();
+    }
+  });
+});
+
+// ── AC-3: X-PAYMENT preserves eip155:8453 network verbatim ───────────────────
+
+describe("AC-3: X-PAYMENT header preserves server-sent network verbatim", () => {
+  test("server sends eip155:8453 → X-PAYMENT payload.network === eip155:8453 (not rewritten)", async () => {
+    const origEnable = process.env["Q402_ENABLE_REAL_PAYMENTS"];
+    const origPk = process.env["Q402_AGENTIC_PRIVATE_KEY"];
+    process.env["Q402_ENABLE_REAL_PAYMENTS"] = "1";
+    process.env["Q402_AGENTIC_PRIVATE_KEY"] =
+      "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+
+    resetSessionSpendUsd();
+
+    const { checkConsent } = await import("../consent.js");
+    const consentIntent = {
+      t: "x402_fetch",
+      url: "https://x402.example/caip2-api",
+      method: "GET",
+      payTo: SELLER.toLowerCase(),
+      amountAtomic: "100",
+      asset: BASE_USDC.toLowerCase(),
+      network: "eip155:8453",
+    };
+    const { expected: token } = checkConsent(consentIntent, undefined);
+
+    let capturedXPayment: string | undefined;
+    const restore = stubFetch([
+      () => Promise.resolve(makeResponse(402, make402Body({ network: "eip155:8453" }))),
+      async (_url: unknown, init?: unknown) => {
+        const reqInit = init as RequestInit | undefined;
+        const headers = (reqInit?.headers ?? {}) as Record<string, string>;
+        capturedXPayment = headers["X-PAYMENT"] ?? headers["x-payment"];
+        return makeResponse(200, '{"data":"caip2-content"}');
+      },
+    ]);
+
+    try {
+      const result = await runX402Fetch({
+        url: "https://x402.example/caip2-api",
+        confirm: true,
+        consentToken: token,
+      });
+
+      assert.strictEqual(result.success, true, `should succeed: ${result.error}`);
+      assert.ok(capturedXPayment !== undefined, "X-PAYMENT header was sent");
+
+      const decoded = JSON.parse(Buffer.from(capturedXPayment!, "base64").toString("utf-8"));
+      assert.strictEqual(
+        decoded.network,
+        "eip155:8453",
+        `network must be eip155:8453 verbatim, got: ${decoded.network}`,
+      );
+    } finally {
+      restore();
+      if (origEnable !== undefined) process.env["Q402_ENABLE_REAL_PAYMENTS"] = origEnable;
+      else delete process.env["Q402_ENABLE_REAL_PAYMENTS"];
+      if (origPk !== undefined) process.env["Q402_AGENTIC_PRIVATE_KEY"] = origPk;
+      else delete process.env["Q402_AGENTIC_PRIVATE_KEY"];
+      resetSessionSpendUsd();
     }
   });
 });
