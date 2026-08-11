@@ -206,6 +206,8 @@ export interface PaySummary {
     tool: string;
     args: Record<string, unknown>;
     why: string;
+    /** Ordered remediation steps. Step (b) is always q402_wallet_status confirm; step (c) is the fix tool. */
+    steps: Array<{ step: number; tool: string; purpose: string }>;
   };
 }
 
@@ -790,6 +792,22 @@ export async function runPay(input: PayInput): Promise<PaySummary> {
                 "(EIP-3009) path can't verify its signature. Clear the delegation " +
                 "with q402_clear_delegation (gasless, no dashboard), then retry the " +
                 'x402 pay - or resend with rail "q402".',
+              steps: [
+                {
+                  step: 1,
+                  tool: "q402_wallet_status",
+                  purpose:
+                    "Confirm the delegation chain — verify which chains are currently delegated " +
+                    "and that this wallet is the one affected.",
+                },
+                {
+                  step: 2,
+                  tool: "q402_clear_delegation",
+                  purpose:
+                    "Clear the EIP-7702 delegation (gasless on most chains; gas-tank billed on Ethereum), " +
+                    "then retry the x402 pay — or resend with rail \"q402\" to bypass x402 entirely.",
+                },
+              ],
             },
           }
         : {}),

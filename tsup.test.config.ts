@@ -7,6 +7,7 @@ export default defineConfig({
     "src/sandbox-receipt.test.ts",
     "src/tools/x402-fetch.test.ts",
     "src/tools/guards.test.ts",
+    "src/tools/delegation-selfheal.test.ts",
   ],
   format: ["esm"],
   platform: "node",

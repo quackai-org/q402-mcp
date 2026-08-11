@@ -43,6 +43,12 @@ const BASE_USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const BASE_USDC_ADDRESS_LC = BASE_USDC_ADDRESS.toLowerCase();
 const BASE_USDC_DECIMALS = 6;
 
+// EIP-7702 delegation bytecode prefix (3 bytes): designates an EOA that has
+// delegated its code to a contract via SET_CODE_TX (EIP-7702).
+const EIP7702_PREFIX = "0xef0100";
+// Canonical Base mainnet RPC — mirrors DEFAULT_RPC[8453] in client.ts.
+const BASE_RPC_URL = "https://mainnet.base.org";
+
 // EIP-712 domain for Base USDC (Circle V2.2)
 const EIP3009_DOMAIN = {
   name: "USD Coin",
@@ -64,6 +70,48 @@ const EIP3009_TYPES = {
 
 // Re-export session helpers so existing test imports from this module still resolve.
 export { getSessionSpendUsd, resetSessionSpendUsd } from "../guards.js";
+
+// ── EIP-7702 delegation guard ──────────────────────────────────────────────────
+// Overridable in tests — null re-enables the real eth_getCode path.
+let _delegationCheckOverride: ((address: string) => Promise<boolean>) | null = null;
+
+/** Inject a stub in tests; pass null to restore the real eth_getCode check. */
+export function _setDelegationCheck(fn: ((address: string) => Promise<boolean>) | null): void {
+  _delegationCheckOverride = fn;
+}
+
+type DelegationStatus = "delegated" | "clear" | "check_skipped";
+
+/**
+ * Returns "delegated" if eth_getCode for the address on Base starts with the
+ * EIP-7702 prefix (0xef0100), "clear" if it does not, or "check_skipped" if
+ * the RPC call fails — in which case the caller should proceed but add a
+ * delegation possibility hint to any subsequent settlement failure.
+ */
+async function checkEip7702Delegation(address: string): Promise<DelegationStatus> {
+  if (_delegationCheckOverride !== null) {
+    return (await _delegationCheckOverride(address)) ? "delegated" : "clear";
+  }
+  try {
+    const resp = await fetch(BASE_RPC_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "eth_getCode",
+        params: [address, "latest"],
+      }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!resp.ok) return "check_skipped";
+    const data = await resp.json() as { result?: string };
+    const code = (data.result ?? "").toLowerCase();
+    return code.startsWith(EIP7702_PREFIX) ? "delegated" : "clear";
+  } catch {
+    return "check_skipped";
+  }
+}
 
 // Read env dynamically so test overrides to process.env are respected.
 // Falls back to ENV (which contains ~/.q402/mcp.env values loaded at startup).
@@ -121,6 +169,11 @@ export interface X402FetchResult {
     consentToken: string;
   };
   auditId?: string;
+  /** Set when the signing wallet is EIP-7702 delegated and signing was blocked. */
+  delegationBlocked?: {
+    why: string;
+    steps: Array<{ step: number; tool: string; purpose: string }>;
+  };
 }
 
 // ── Guard helpers ──────────────────────────────────────────────────────────────
@@ -396,6 +449,48 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
     };
   }
 
+  // ── Step 5f: EIP-7702 delegation guard ───────────────────────────────────────
+  // Derive the signing address without making any RPC call (sync from private key).
+  const signerAddress = new Wallet(signingKey).address;
+  const delegationStatus = await checkEip7702Delegation(signerAddress);
+  if (delegationStatus === "delegated") {
+    writeAudit({
+      id: auditId, url: input.url, method, payTo: req.payTo, asset: req.asset,
+      network: req.network, amountAtomic: req.amount, amountUsd,
+      status: "blocked_by_guard", blockedReason: "wallet_delegated",
+    });
+    return {
+      success: false,
+      statusCode: 402,
+      error:
+        "x402: signing wallet is EIP-7702 delegated to the q402 rail — " +
+        "EIP-3009 signatures from delegated EOAs fail settlement on Base USDC V2.2. " +
+        "Run q402_wallet_status to confirm, then q402_clear_delegation to fix (gasless on Base).",
+      auditId,
+      delegationBlocked: {
+        why:
+          "The signing key's EOA is EIP-7702 delegated to the q402 contract. " +
+          "Base USDC V2.2 routes EIP-3009 signatures from delegated accounts through ERC-1271, " +
+          "which the q402 implementation does not support, causing the seller's payment " +
+          "settlement to reject. The delegation must be cleared before EIP-3009 can be used.",
+        steps: [
+          {
+            step: 1,
+            tool: "q402_wallet_status",
+            purpose:
+              "Confirm which chains are currently delegated and that this wallet is affected.",
+          },
+          {
+            step: 2,
+            tool: "q402_clear_delegation",
+            purpose:
+              "Clear the EIP-7702 delegation (gasless on Base), then retry q402_x402_fetch.",
+          },
+        ],
+      },
+    };
+  }
+
   // ── Step 6: sign EIP-3009 ────────────────────────────────────────────────────
   let signed: Awaited<ReturnType<typeof signEip3009>>;
   try {
@@ -459,10 +554,16 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
       settlementStatusCode: retryResp.status,
       responseExcerpt: excerpt,
     });
+    const delegationHint =
+      delegationStatus === "check_skipped"
+        ? " Delegation check was skipped (RPC unavailable) — if this repeats, " +
+          "the signing wallet may be EIP-7702 delegated: run q402_wallet_status " +
+          "to verify and q402_clear_delegation to fix."
+        : "";
     return {
       success: false,
       statusCode: retryResp.status,
-      error: `x402: retry returned HTTP ${retryResp.status}`,
+      error: `x402: retry returned HTTP ${retryResp.status}.${delegationHint}`,
       body: responseBody,
       auditId,
     };
