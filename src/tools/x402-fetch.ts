@@ -22,8 +22,14 @@
 import { Wallet, hexlify, parseUnits, randomBytes } from "ethers";
 import { z } from "zod";
 import { CONFIG, isValidPrivateKey, ENV } from "../config.js";
-import { checkConsent } from "../consent.js";
-import { maxAmountGuard } from "./pay.js";
+import {
+  checkConsent,
+  maxAmountGuard,
+  getSessionSpendUsd,
+  resetSessionSpendUsd,
+  addSessionSpend,
+  getSessionCapUsd,
+} from "../guards.js";
 import {
   saveX402AuditRecord,
   type X402AuditRecord,
@@ -56,23 +62,13 @@ const EIP3009_TYPES = {
   ],
 };
 
-// Per-session cumulative spend accumulator (module-level, reset on process restart).
-let _sessionSpendUsd = 0;
-
-/** Exported for testing: read/reset the session accumulator. */
-export function getSessionSpendUsd(): number { return _sessionSpendUsd; }
-export function resetSessionSpendUsd(): void  { _sessionSpendUsd = 0; }
+// Re-export session helpers so existing test imports from this module still resolve.
+export { getSessionSpendUsd, resetSessionSpendUsd } from "../guards.js";
 
 // Read env dynamically so test overrides to process.env are respected.
 // Falls back to ENV (which contains ~/.q402/mcp.env values loaded at startup).
 function dynEnv(key: string): string | undefined {
   return process.env[key] ?? (ENV as Record<string, string | undefined>)[key];
-}
-
-function getSessionCapUsd(): number {
-  const raw = dynEnv("Q402_X402_SESSION_CAP_USD");
-  const n = raw !== undefined ? parseFloat(raw) : NaN;
-  return Number.isFinite(n) && n > 0 ? n : 5;
 }
 
 // ── Input schema ───────────────────────────────────────────────────────────────
@@ -329,10 +325,10 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
   // 5b: per-session cumulative cap
   const sessionCap = getSessionCapUsd();
   const amountNum = parseFloat(humanAmount);
-  if (_sessionSpendUsd + amountNum > sessionCap) {
+  if (getSessionSpendUsd() + amountNum > sessionCap) {
     const reason =
       `x402: per-session cumulative spend cap of $${sessionCap} would be exceeded ` +
-      `(already spent $${_sessionSpendUsd.toFixed(4)}, this request is $${humanAmount}). ` +
+      `(already spent $${getSessionSpendUsd().toFixed(4)}, this request is $${humanAmount}). ` +
       `Set Q402_X402_SESSION_CAP_USD to a higher value if intentional.`;
     writeAudit({
       id: auditId, url: input.url, method, payTo: req.payTo, asset: req.asset,
@@ -473,7 +469,7 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
   }
 
   // ── Step 8: settle accumulator and write audit ────────────────────────────────
-  _sessionSpendUsd += amountNum;
+  addSessionSpend(amountNum);
   writeAudit({
     id: auditId, url: input.url, method, payTo: req.payTo, asset: req.asset,
     network: req.network, amountAtomic: req.amount, amountUsd,

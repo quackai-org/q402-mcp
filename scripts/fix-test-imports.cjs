@@ -11,6 +11,7 @@ const testFiles = [
   path.join(__dirname, "..", "dist-test", "travala", "live-adapter.test.js"),
   path.join(__dirname, "..", "dist-test", "sandbox-receipt.test.js"),
   path.join(__dirname, "..", "dist-test", "tools", "x402-fetch.test.js"),
+  path.join(__dirname, "..", "dist-test", "tools", "guards.test.js"),
 ];
 
 for (const file of testFiles) {
