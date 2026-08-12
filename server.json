@@ -18,7 +18,7 @@
       "environmentVariables": [
         {
           "name": "Q402_TRIAL_API_KEY",
-          "description": "Recommended path: skip this UI and run `q402_doctor` after install - it stores secrets in ~/.q402/mcp.env, which the server auto-loads. Fill this field directly ONLY if your MCP client manages secrets for you. Value is a Free Trial API key from https://q402.quackai.ai/event - BNB Chain + Avalanche, 2,000 sponsored TXs, gas covered by Q402. BNB + Avalanche payments auto-route to this key when set (same rule for q402_pay and q402_batch_pay up to 5 recipients).",
+          "description": "Recommended path: skip this UI and run `q402_doctor` after install - it stores secrets in ~/.q402/mcp.env, which the server auto-loads. Fill this field directly ONLY if your MCP client manages secrets for you. Value is a Free Trial API key from https://q402.quackai.ai/event - BNB Chain + Avalanche, 500 sponsored TXs, gas covered by Q402. BNB + Avalanche payments auto-route to this key when set (same rule for q402_pay and q402_batch_pay up to 5 recipients).",
           "isRequired": false,
           "isSecret": true,
           "format": "string"
