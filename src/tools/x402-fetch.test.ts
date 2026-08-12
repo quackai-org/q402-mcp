@@ -21,6 +21,7 @@ import {
   runX402Fetch,
   getSessionSpendUsd,
   resetSessionSpendUsd,
+  _setDelegationCheck,
 } from "./x402-fetch.js";
 import {
   readX402Audit,
@@ -335,6 +336,8 @@ describe("AC-3: X-PAYMENT header preserves server-sent network verbatim", () => 
     process.env["Q402_AGENTIC_PRIVATE_KEY"] =
       "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
+    // Bypass eth_getCode delegation check so the stub only needs the 402 + retry.
+    _setDelegationCheck(async () => false);
     resetSessionSpendUsd();
 
     const { checkConsent } = await import("../consent.js");
@@ -378,6 +381,7 @@ describe("AC-3: X-PAYMENT header preserves server-sent network verbatim", () => 
       );
     } finally {
       restore();
+      _setDelegationCheck(null);
       if (origEnable !== undefined) process.env["Q402_ENABLE_REAL_PAYMENTS"] = origEnable;
       else delete process.env["Q402_ENABLE_REAL_PAYMENTS"];
       if (origPk !== undefined) process.env["Q402_AGENTIC_PRIVATE_KEY"] = origPk;
@@ -564,6 +568,8 @@ describe("AC-8: X-PAYMENT header assembly and retry", () => {
     process.env["Q402_AGENTIC_PRIVATE_KEY"] =
       "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
+    // Bypass eth_getCode delegation check so the stub only needs the 402 + retry.
+    _setDelegationCheck(async () => false);
     resetSessionSpendUsd();
 
     // Build the consent token first
@@ -625,6 +631,7 @@ describe("AC-8: X-PAYMENT header assembly and retry", () => {
       assert.ok(typeof decoded.payload?.authorization?.nonce === "string", "nonce present");
     } finally {
       restore();
+      _setDelegationCheck(null);
       if (origEnable !== undefined) process.env["Q402_ENABLE_REAL_PAYMENTS"] = origEnable;
       else delete process.env["Q402_ENABLE_REAL_PAYMENTS"];
       if (origPk !== undefined) process.env["Q402_AGENTIC_PRIVATE_KEY"] = origPk;
