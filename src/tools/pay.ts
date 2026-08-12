@@ -28,7 +28,7 @@ import {
   type KeyScope,
 } from "../config.js";
 import { Q402NodeClient, sandboxPay, type PayResult } from "../client.js";
-import { checkConsent } from "../consent.js";
+import { checkConsent, maxAmountGuard, recipientGuard } from "../guards.js";
 
 /** Which wallet the agent should spend from. */
 export type WalletModeRequest = "eoa" | "agentic-local" | "agentic-server";
@@ -209,30 +209,9 @@ export interface PaySummary {
   };
 }
 
-export function maxAmountGuard(amount: string, cap: number): void {
-  // amount comes pre-validated as `\d+(\.\d+)?` - Number() is safe here for
-  // a comparison against the per-call USD cap (the cap is intentionally a
-  // small UI-friendly value, so float precision is irrelevant for the check).
-  const numeric = Number(amount);
-  if (!Number.isFinite(numeric)) {
-    throw new Error(`unparseable amount "${amount}"`);
-  }
-  if (numeric > cap) {
-    throw new Error(
-      `amount $${amount} exceeds the per-call cap of $${cap}. ` +
-        `Set Q402_MAX_AMOUNT_PER_CALL to a higher value if intentional.`,
-    );
-  }
-}
-
-function recipientGuard(to: string, allow: string[]): void {
-  if (allow.length === 0) return;
-  if (!allow.includes(to.toLowerCase())) {
-    throw new Error(
-      `recipient ${to} is not in Q402_ALLOWED_RECIPIENTS. ` +
-        "Either add this address to the allowlist or unset the env var to disable the guard.",
-    );
-  }
+// Audit sink for q402_pay guard rejections: writes to stderr (pay has no JSON audit store).
+function logPayGuardBlock(guard: string, reason: string): void {
+  process.stderr.write(`[q402-mcp] pay guard blocked (${guard}): ${reason}\n`);
 }
 
 export async function runPay(input: PayInput): Promise<PaySummary> {
@@ -388,20 +367,35 @@ export async function runPay(input: PayInput): Promise<PaySummary> {
   // Q (QuackAI) is exempt from USD limits (not USD-valued, owner's own token) -
   // the server treats Q's amountUsd as 0, so the MCP must skip the USD cap too.
   if (input.token !== "Q") {
-    maxAmountGuard(input.amount, CONFIG.maxAmountPerCallUsd);
+    try {
+      maxAmountGuard(input.amount, CONFIG.maxAmountPerCallUsd);
+    } catch (e) {
+      logPayGuardBlock("max_amount", e instanceof Error ? e.message : String(e));
+      throw e;
+    }
     guardsApplied.push(`max_amount<=${CONFIG.maxAmountPerCallUsd}`);
   } else {
     guardsApplied.push("max_amount=exempt(Q)");
   }
 
-  recipientGuard(input.to, CONFIG.allowedRecipients);
+  try {
+    recipientGuard(input.to, CONFIG.allowedRecipients);
+  } catch (e) {
+    logPayGuardBlock("recipient", e instanceof Error ? e.message : String(e));
+    throw e;
+  }
   // A MultiPayeeSplit fans funds out to addresses OTHER than `to`, so the
   // allowlist must screen every split leg too - otherwise an agent could
   // route the bulk to an off-allowlist address via hookParams.splits
   // while `to` (a tiny leg) sits on the allowlist and passes the guard.
   if (input.hookParams?.splits) {
     for (const leg of input.hookParams.splits) {
-      recipientGuard(leg.recipient, CONFIG.allowedRecipients);
+      try {
+        recipientGuard(leg.recipient, CONFIG.allowedRecipients);
+      } catch (e) {
+        logPayGuardBlock("recipient(split)", e instanceof Error ? e.message : String(e));
+        throw e;
+      }
     }
   }
   if (CONFIG.allowedRecipients.length > 0) {

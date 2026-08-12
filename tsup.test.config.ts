@@ -6,6 +6,7 @@ export default defineConfig({
     "src/travala/live-adapter.test.ts",
     "src/sandbox-receipt.test.ts",
     "src/tools/x402-fetch.test.ts",
+    "src/tools/guards.test.ts",
   ],
   format: ["esm"],
   platform: "node",
