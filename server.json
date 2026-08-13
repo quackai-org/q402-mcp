@@ -6,12 +6,12 @@
     "url": "https://github.com/quackai-org/q402-mcp",
     "source": "github"
   },
-  "version": "0.11.17",
+  "version": "0.11.18",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@quackai/q402-mcp",
-      "version": "0.11.17",
+      "version": "0.11.18",
       "transport": {
         "type": "stdio"
       },
@@ -92,6 +92,13 @@
         {
           "name": "Q402_WALLET_ID",
           "description": "DEPRECATED soft-migration alias for Q402_AGENT_WALLET_ADDRESS (one release of overlap from v0.6.0). The server still accepts it but logs a deprecation notice. New installs should set Q402_AGENT_WALLET_ADDRESS directly.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "Q402_BUILDER_CODE",
+          "description": "Optional Base Builder Code for onchain attribution (ERC-8021 / Base Builder Codes). When set, every q402_x402_fetch payment includes your code as the client/intermediary in the x402 payment extension so payments are attributed onchain. Format: 1-32 lowercase letters, numbers, or underscores. Leave unset to disable attribution.",
           "isRequired": false,
           "isSecret": false,
           "format": "string"

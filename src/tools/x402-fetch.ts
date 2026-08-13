@@ -239,6 +239,15 @@ async function signEip3009(
   return { from, signature, nonce, validBefore: validBefore.toString() };
 }
 
+// Validates the builder code format: 1-32 lowercase letters/numbers/underscores.
+const BUILDER_CODE_RE = /^[a-z0-9_]{1,32}$/;
+
+function getBuilderCode(): string | undefined {
+  const raw = dynEnv("Q402_BUILDER_CODE");
+  if (!raw || !BUILDER_CODE_RE.test(raw)) return undefined;
+  return raw;
+}
+
 function buildXPaymentHeader(params: {
   from:        string;
   payTo:       string;
@@ -247,8 +256,9 @@ function buildXPaymentHeader(params: {
   nonce:        string;
   signature:    string;
   network:      string;
+  builderCode?: string;
 }): string {
-  const payload = {
+  const payload: Record<string, unknown> = {
     x402Version: 1,
     scheme: "exact",
     network: params.network,
@@ -264,6 +274,11 @@ function buildXPaymentHeader(params: {
       },
     },
   };
+  // Attach builder code as the client/intermediary service code (x402 builder-code extension).
+  // Field `s` is the service/client code; `a` (app) is omitted unless the server declares it.
+  if (params.builderCode) {
+    payload["extensions"] = { "builder-code": { s: params.builderCode } };
+  }
   return Buffer.from(JSON.stringify(payload)).toString("base64");
 }
 
@@ -519,6 +534,7 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
     nonce:        signed.nonce,
     signature:    signed.signature,
     network:      req.network,
+    builderCode:  getBuilderCode(),
   });
 
   let retryResp: Response;
@@ -613,7 +629,11 @@ export const X402_FETCH_TOOL = {
     "log and included in q402_agent_spend_report output. " +
     "\n\n" +
     "REQUIRES Q402_ENABLE_REAL_PAYMENTS=1 and Q402_AGENTIC_PRIVATE_KEY (or Q402_PRIVATE_KEY). " +
-    "No calls to /api/relay — the signed authorization goes directly to the seller/facilitator.",
+    "No calls to /api/relay — the signed authorization goes directly to the seller/facilitator. " +
+    "\n\n" +
+    "ATTRIBUTION: set Q402_BUILDER_CODE (1-32 lowercase letters/numbers/underscores) to include " +
+    "your Base Builder Code as the client/intermediary service code in every payment, enabling " +
+    "onchain attribution via ERC-8021 at the facilitator settlement step.",
   inputSchema: {
     type: "object" as const,
     properties: {
