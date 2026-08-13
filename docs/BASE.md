@@ -44,7 +44,7 @@ Real mainnet transactions (not testnet):
 
 ## Contracts on Base
 
-**Q402 implementation (verified on BaseScan):**
+**Q402 implementation contract:**
 [0x2fb2B2D110b6c5664e701666B3741240242bf350](https://basescan.org/address/0x2fb2B2D110b6c5664e701666B3741240242bf350#code)
 
 **Stablecoins:**

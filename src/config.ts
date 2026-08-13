@@ -263,6 +263,9 @@ export interface Config {
   travalaAgentId: string | null;
   /** Travala reward wallet address (TRAVALA_REWARD_WALLET). May be empty in Phase 1. */
   travalaRewardWallet: string | null;
+  /** Base Builder Code for onchain attribution via ERC-8021 (Q402_BUILDER_CODE).
+   *  Null when unset or invalid; feature is inactive when null. */
+  builderCode: string | null;
 }
 
 // Default relay endpoint. Override via Q402_RELAY_BASE_URL env when
@@ -361,6 +364,13 @@ export function loadConfig(): Config {
   const travalaAgentId   = process.env["TRAVALA_AGENT_ID"]     ?? null;
   const travalaRewardWallet = process.env["TRAVALA_REWARD_WALLET"] ?? null;
 
+  // Builder Code for onchain attribution (Base Builder Codes / ERC-8021).
+  // Format: 1-32 lowercase letters, numbers, or underscores. Null = feature off.
+  const builderCodeRaw = ENV.Q402_BUILDER_CODE ?? null;
+  const builderCode = builderCodeRaw !== null && /^[a-z0-9_]{1,32}$/.test(builderCodeRaw)
+    ? builderCodeRaw
+    : null;
+
   return {
     trialApiKey,
     multichainApiKey,
@@ -378,6 +388,7 @@ export function loadConfig(): Config {
     travelMode,
     travalaAgentId,
     travalaRewardWallet,
+    builderCode,
   };
 }
 
