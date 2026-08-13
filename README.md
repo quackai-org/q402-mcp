@@ -176,7 +176,7 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 
 ## Tools exposed
 
-**46 tools, grouped by capability.** Read-only by default; live mode needs a live API key, a signing path, and `Q402_ENABLE_REAL_PAYMENTS=1`. Rows marked `live mode` move funds and need an explicit in-chat confirmation.
+**47 tools, grouped by capability.** Read-only by default; live mode needs a live API key, a signing path, and `Q402_ENABLE_REAL_PAYMENTS=1`. Rows marked `live mode` move funds and need an explicit in-chat confirmation.
 
 | Tool | Auth | Purpose |
 |---|---|---|
@@ -235,11 +235,49 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 | `q402_redstone_trigger_create` | live mode | Arm a gasless payout that fires once when a RedStone feed crosses a threshold (edge-latched). |
 | `q402_redstone_trigger_list` | live mode | List the Agent Wallet's RedStone triggers + their state. |
 | `q402_redstone_trigger_cancel` | live mode | Permanently stop a RedStone trigger. |
+| **x402 (outbound)** | | |
+| `q402_x402_fetch` | live mode | Fetch any x402-gated URL and handle HTTP 402 automatically: validates Base USDC payment option, guards against excess spend, signs EIP-3009 TransferWithAuthorization, and retries with the X-PAYMENT header. Non-402 responses pass through unchanged. |
 
 `q402_pay` + `q402_batch_pay` + `q402_bridge_send` + `q402_yield_deposit` + `q402_yield_withdraw` + `q402_stake` + `q402_unstake` + `q402_request_pay` require explicit in-chat confirmation. Batch confirmation = full batch, not per-row.
 
 > Note: `q402_pay` expects a 0x address; ENS is not resolved server-side, so resolve it client-side first.
 > Per-chain Gas Tank balances + full TX history live in the [dashboard](https://q402.quackai.ai/dashboard) (wallet-signature only).
+
+---
+
+## x402 outbound payments (q402_x402_fetch)
+
+`q402_x402_fetch` is a general-purpose x402 client. It fetches any URL and handles HTTP 402 payment-required responses automatically. When the server returns a non-402 status, the response passes through unchanged, so it also works as a regular fetch tool.
+
+**What it solves.** Some APIs and content endpoints use the x402 protocol to charge per-request. An agent hitting such a URL receives an HTTP 402 response with machine-readable payment requirements. `q402_x402_fetch` reads those requirements, validates the payment option, signs an EIP-3009 TransferWithAuthorization against Base USDC, encodes it into an `X-PAYMENT` header, and retries the request - all in one call.
+
+**Supported.** `scheme=exact` + `network=base` (CAIP-2 `eip155:8453`; also accepted: `base-mainnet`) + Base USDC only. Any other scheme, network, or asset returns an explicit rejection and no signature is produced.
+
+**Guards (three layers).**
+
+| Guard | Env var | Default |
+|---|---|---|
+| Per-call spend cap | `Q402_MAX_AMOUNT_PER_CALL` | $200 |
+| Per-session cumulative cap | `Q402_X402_SESSION_CAP_USD` | $5 |
+| Two-phase consent | `consentToken` | required on payment |
+
+Two-phase consent flow: the first call (without `consentToken`) returns `needs_confirmation` and a preview of the amount and recipient. Re-call with the same arguments plus the returned `consentToken` to authorize the payment.
+
+**Audit.** Every 402 attempt - settled or blocked by a guard - is written to the local audit log at `~/.q402/x402-audit.json` and surfaced in `q402_agent_spend_report`. These are local records on the agent's machine.
+
+**Minimum working example.**
+
+```json
+{
+  "url": "https://api.example.com/data",
+  "method": "GET",
+  "confirm": true
+}
+```
+
+If the endpoint returns 402, the tool responds with `needs_confirmation` and a `consentToken`. Re-call with those same arguments plus the `consentToken` to authorize payment.
+
+**Requirements.** `Q402_ENABLE_REAL_PAYMENTS=1` plus a local signing key (`Q402_AGENTIC_PRIVATE_KEY` or `Q402_PRIVATE_KEY`). The signed authorization goes directly to the seller's facilitator endpoint; the Q402 relay is not involved in this path.
 
 ---
 
@@ -288,6 +326,7 @@ Anything missing for the resolved scope → automatic sandbox fallback with a hi
 | Env var | Default | Effect |
 |---|---|---|
 | `Q402_MAX_AMOUNT_PER_CALL` | `200` | Reject USDC/USDT/RLUSD calls with `amount > N` USD. Q (QuackAI) is exempt by design (your own token); the recipient allowlist + confirmation still apply to it. |
+| `Q402_X402_SESSION_CAP_USD` | `5` | Per-session cumulative spend cap for `q402_x402_fetch` (USD). Blocked if the session total would exceed this value. Resets on MCP server restart. |
 | `Q402_ALLOWED_RECIPIENTS` | off | Comma-separated address allowlist. |
 
 Combined with the two-phase `consentToken` + live-mode env, a **stablecoin** payment needs: a preview the user approved + amount ≤ cap + recipient allowed + all 3 live envs. **Q (QuackAI) is exempt from the cap** (your own token); the preview, recipient allowlist, and live-mode env still apply to it.
@@ -305,6 +344,7 @@ Combined with the two-phase `consentToken` + live-mode env, a **stablecoin** pay
 | `Q402_AGENT_WALLET_ADDRESS` | Mode C (optional) | When you have multiple server-managed Agent Wallets (max 10 per owner), set this to the lowercased 0x… address of the one Q402 should spend from. Omit to use the default wallet. Ignored in Modes A/B. |
 | `Q402_ENABLE_REAL_PAYMENTS` | live-pay | Set to `1` to opt in. Any other value (or unset) → sandbox. |
 | `Q402_MAX_AMOUNT_PER_CALL` | optional | USD-equivalent cap for USDC/USDT/RLUSD. Defaults to `200`. Lower for tighter agent blast-radius. Q (QuackAI) is exempt by design (your own token). |
+| `Q402_X402_SESSION_CAP_USD` | optional | Per-session cumulative spend cap for `q402_x402_fetch` (USD). Defaults to `5`. Resets on MCP server restart. |
 | `Q402_ALLOWED_RECIPIENTS` | optional | Comma-separated lowercase addresses. Defaults to no allowlist. |
 | `Q402_RELAY_BASE_URL` | optional | Defaults to `https://q402.quackai.ai/api`. Override for self-hosted Q402. |
 
