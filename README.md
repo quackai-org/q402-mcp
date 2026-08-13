@@ -328,6 +328,7 @@ Anything missing for the resolved scope → automatic sandbox fallback with a hi
 | `Q402_MAX_AMOUNT_PER_CALL` | `200` | Reject USDC/USDT/RLUSD calls with `amount > N` USD. Q (QuackAI) is exempt by design (your own token); the recipient allowlist + confirmation still apply to it. |
 | `Q402_X402_SESSION_CAP_USD` | `5` | Per-session cumulative spend cap for `q402_x402_fetch` (USD). Blocked if the session total would exceed this value. Resets on MCP server restart. |
 | `Q402_ALLOWED_RECIPIENTS` | off | Comma-separated address allowlist. |
+| `Q402_BUILDER_CODE` | off | Base Builder Code for `q402_x402_fetch` on-chain attribution (ERC-8021 via x402 v2 `extensions.builder-code`). |
 
 Combined with the two-phase `consentToken` + live-mode env, a **stablecoin** payment needs: a preview the user approved + amount ≤ cap + recipient allowed + all 3 live envs. **Q (QuackAI) is exempt from the cap** (your own token); the preview, recipient allowlist, and live-mode env still apply to it.
 
@@ -346,6 +347,7 @@ Combined with the two-phase `consentToken` + live-mode env, a **stablecoin** pay
 | `Q402_MAX_AMOUNT_PER_CALL` | optional | USD-equivalent cap for USDC/USDT/RLUSD. Defaults to `200`. Lower for tighter agent blast-radius. Q (QuackAI) is exempt by design (your own token). |
 | `Q402_X402_SESSION_CAP_USD` | optional | Per-session cumulative spend cap for `q402_x402_fetch` (USD). Defaults to `5`. Resets on MCP server restart. |
 | `Q402_ALLOWED_RECIPIENTS` | optional | Comma-separated lowercase addresses. Defaults to no allowlist. |
+| `Q402_BUILDER_CODE` | optional | Base Builder Code (1–32 lowercase letters/numbers/underscores, e.g. `bc_fu2v7kgf`). Set to your registered Builder Code to attach on-chain ERC-8021 attribution to every `q402_x402_fetch` payment via the x402 `extensions.builder-code` field. |
 | `Q402_RELAY_BASE_URL` | optional | Defaults to `https://q402.quackai.ai/api`. Override for self-hosted Q402. |
 
 <details>
