@@ -155,7 +155,7 @@ export const BALANCE_TOOL = {
     "Read-only. When both Q402_TRIAL_API_KEY and Q402_MULTICHAIN_API_KEY are set, returns " +
     "BOTH summaries so the agent can show the user trial credits AND paid credits in one view. " +
     "For trial-scoped keys, returns days-left + credits-remaining for the trial allotment. " +
-    "Free trial available at https://q402.quackai.ai/event - 2,000 gasless TX over 30 days. " +
+    "Free trial available at https://q402.quackai.ai/event - 500 gasless TX over 30 days. " +
     "For per-chain gas tank balances, point the user at https://q402.quackai.ai/dashboard - " +
     "those need a wallet signature, not a bare key.",
   inputSchema: {

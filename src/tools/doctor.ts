@@ -261,7 +261,7 @@ const ENV_FILE_TEMPLATE = `# ---------------------------------------------------
 # ----------------------------------------------------------------------
 # API KEY - paste on the right of \`=\` (one OR both for auto-routing)
 # ----------------------------------------------------------------------
-# Free Trial:        BNB Chain + Avalanche, 2,000 sponsored TX
+# Free Trial:        BNB Chain + Avalanche, 500 sponsored TX
 # Get one at:        https://q402.quackai.ai/event
 Q402_TRIAL_API_KEY=
 
@@ -638,7 +638,7 @@ export async function runDoctor(): Promise<DoctorReport> {
   const envState: Record<string, EnvSlot> = {
     Q402_TRIAL_API_KEY: envSlot(
       "Q402_TRIAL_API_KEY",
-      "Free Trial - BNB Chain + Avalanche, 2,000 sponsored TX. Get at https://q402.quackai.ai/event",
+      "Free Trial - BNB Chain + Avalanche, 500 sponsored TX. Get at https://q402.quackai.ai/event",
     ),
     Q402_MULTICHAIN_API_KEY: envSlot(
       "Q402_MULTICHAIN_API_KEY",
@@ -879,7 +879,7 @@ export async function runDoctor(): Promise<DoctorReport> {
           ? [
               "Q402 is installed. To start sending payments you need (1) an API key and (2) a wallet to sign with.",
               "I'll create a settings file for you - say yes and I'll set it up + open it in your editor.",
-              "Get a free API key at https://q402.quackai.ai/event (BNB Chain + Avalanche, 2,000 sponsored transactions).",
+              "Get a free API key at https://q402.quackai.ai/event (BNB Chain + Avalanche, 500 sponsored transactions).",
               "There are 3 wallet modes - pick one:" +
                 " (A) your MetaMask EOA's private key (simplest, but your account will be marked 'Smart account' after first payment);" +
                 " (B) export an Agent Wallet's private key from the dashboard (keeps your MetaMask untouched, recommended for AI agents);" +
