@@ -29,6 +29,7 @@
     "ai-agents",
     "base",
     "x402-base",
+    "x402 client (Base)",
     "eip-3009"
   ],
   "type": "module",
