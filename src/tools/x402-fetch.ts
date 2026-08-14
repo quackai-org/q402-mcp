@@ -258,28 +258,32 @@ function buildXPaymentHeader(params: {
   network:      string;
   builderCode?: string;
 }): string {
-  const payload: Record<string, unknown> = {
-    x402Version: 1,
-    scheme: "exact",
-    network: params.network,
-    payload: {
-      signature: params.signature,
-      authorization: {
-        from:        params.from,
-        to:          params.payTo,
-        value:       params.amountAtomic,
-        validAfter:  "0",
-        validBefore: params.validBefore,
-        nonce:       params.nonce,
+  // x402 v2: scheme/network/payload wrapped under `accepted`; extensions at top level.
+  // v1 had `extensions` at the top level too, but the CDP facilitator only honors it
+  // when x402Version=2, so the builder-code attribution was silently dropped on v1.
+  const header: Record<string, unknown> = {
+    x402Version: 2,
+    accepted: {
+      scheme: "exact",
+      network: params.network,
+      payload: {
+        signature: params.signature,
+        authorization: {
+          from:        params.from,
+          to:          params.payTo,
+          value:       params.amountAtomic,
+          validAfter:  "0",
+          validBefore: params.validBefore,
+          nonce:       params.nonce,
+        },
       },
     },
   };
-  // Attach builder code as the client/intermediary service code (x402 builder-code extension).
-  // Field `s` is the service/client code; `a` (app) is omitted unless the server declares it.
+  // Field `s` = service/client code; `a` (app) omitted unless the server declares it.
   if (params.builderCode) {
-    payload["extensions"] = { "builder-code": { s: params.builderCode } };
+    header["extensions"] = { "builder-code": { s: params.builderCode } };
   }
-  return Buffer.from(JSON.stringify(payload)).toString("base64");
+  return Buffer.from(JSON.stringify(header)).toString("base64");
 }
 
 // ── Main runner ────────────────────────────────────────────────────────────────

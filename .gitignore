@@ -4,6 +4,7 @@ dist
 *.log
 .env
 .env.*
+!.env.example
 
 # TypeScript incremental build state — written when contributors run
 # `tsc --incremental` while iterating. Out of the npm tarball already

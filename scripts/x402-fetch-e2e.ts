@@ -174,20 +174,22 @@ async function main(): Promise<void> {
   log(`  signature  : ${signature.slice(0, 20)}…`);
 
   // ── Step 5: build X-PAYMENT header ────────────────────────────────────────
-  log("\nStep 4: build X-PAYMENT header");
+  log("\nStep 4: build X-PAYMENT header (x402 v2)");
   const payloadObj = {
-    x402Version: 1,
-    scheme: "exact",
-    network: req.network,
-    payload: {
-      signature,
-      authorization: {
-        from:        walletAddress,
-        to:          req.payTo,
-        value:       req.amount,
-        validAfter:  "0",
-        validBefore: validBefore.toString(),
-        nonce,
+    x402Version: 2,
+    accepted: {
+      scheme: "exact",
+      network: req.network,
+      payload: {
+        signature,
+        authorization: {
+          from:        walletAddress,
+          to:          req.payTo,
+          value:       req.amount,
+          validAfter:  "0",
+          validBefore: validBefore.toString(),
+          nonce,
+        },
       },
     },
   };

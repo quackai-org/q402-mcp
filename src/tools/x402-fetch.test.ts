@@ -375,9 +375,9 @@ describe("AC-3: X-PAYMENT header preserves server-sent network verbatim", () => 
 
       const decoded = JSON.parse(Buffer.from(capturedXPayment!, "base64").toString("utf-8"));
       assert.strictEqual(
-        decoded.network,
+        decoded.accepted?.network,
         "eip155:8453",
-        `network must be eip155:8453 verbatim, got: ${decoded.network}`,
+        `network must be eip155:8453 verbatim, got: ${decoded.accepted?.network}`,
       );
     } finally {
       restore();
@@ -618,17 +618,17 @@ describe("AC-8: X-PAYMENT header assembly and retry", () => {
       assert.ok(typeof xPayment === "string", "X-PAYMENT header is a string");
       assert.ok(xPayment.length > 0, "X-PAYMENT header is not empty");
 
-      // Verify it's valid base64 JSON
+      // Verify it's valid base64 JSON in x402 v2 format
       const decoded = JSON.parse(Buffer.from(xPayment, "base64").toString("utf-8"));
-      assert.strictEqual(decoded.x402Version, 1, "x402Version is 1");
-      assert.strictEqual(decoded.scheme, "exact", "scheme is exact");
-      assert.ok(decoded.network === "base" || decoded.network === "base-mainnet", "network is base");
-      assert.ok(typeof decoded.payload?.signature === "string", "signature present");
-      assert.ok(decoded.payload?.authorization?.from?.startsWith("0x"), "from address present");
-      assert.strictEqual(decoded.payload?.authorization?.to?.toLowerCase(), SELLER.toLowerCase(), "to is payTo");
-      assert.strictEqual(decoded.payload?.authorization?.value, "100", "value matches amount");
-      assert.strictEqual(decoded.payload?.authorization?.validAfter, "0", "validAfter is 0");
-      assert.ok(typeof decoded.payload?.authorization?.nonce === "string", "nonce present");
+      assert.strictEqual(decoded.x402Version, 2, "x402Version is 2");
+      assert.strictEqual(decoded.accepted?.scheme, "exact", "accepted.scheme is exact");
+      assert.ok(decoded.accepted?.network === "base" || decoded.accepted?.network === "base-mainnet", "network is base");
+      assert.ok(typeof decoded.accepted?.payload?.signature === "string", "signature present");
+      assert.ok(decoded.accepted?.payload?.authorization?.from?.startsWith("0x"), "from address present");
+      assert.strictEqual(decoded.accepted?.payload?.authorization?.to?.toLowerCase(), SELLER.toLowerCase(), "to is payTo");
+      assert.strictEqual(decoded.accepted?.payload?.authorization?.value, "100", "value matches amount");
+      assert.strictEqual(decoded.accepted?.payload?.authorization?.validAfter, "0", "validAfter is 0");
+      assert.ok(typeof decoded.accepted?.payload?.authorization?.nonce === "string", "nonce present");
     } finally {
       restore();
       _setDelegationCheck(null);
