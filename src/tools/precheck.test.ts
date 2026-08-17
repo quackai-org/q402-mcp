@@ -9,6 +9,8 @@
 
 import { test, describe, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 import {
   runPrecheck,
@@ -18,11 +20,14 @@ import {
   setVerdictInCache,
   expireVerdictInCache,
   resetPrecheckState,
+  _overrideCachePath,
   PRECHECK_OPT_OUT_ENV,
   PRECHECK_FEE_USD,
   type PrecheckContext,
   type TrustCheckFn,
 } from "./precheck.js";
+
+const TEST_CACHE_PATH = join(tmpdir(), `q402-precheck-test-${process.pid}.json`);
 
 // ── Test helpers ────────────────────────────────────────────────────────────────
 
@@ -56,12 +61,14 @@ function makeCtx(overrides: Partial<PrecheckContext> = {}): PrecheckContext {
 // ── Setup / teardown ───────────────────────────────────────────────────────────
 
 beforeEach(() => {
+  _overrideCachePath(TEST_CACHE_PATH);
   resetPrecheckState();
   delete process.env[PRECHECK_OPT_OUT_ENV];
 });
 
 afterEach(() => {
   resetPrecheckState();
+  _overrideCachePath(null);
   delete process.env[PRECHECK_OPT_OUT_ENV];
 });
 

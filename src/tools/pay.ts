@@ -29,7 +29,7 @@ import {
 } from "../config.js";
 import { Q402NodeClient, sandboxPay, type PayResult } from "../client.js";
 import { checkConsent, maxAmountGuard, recipientGuard } from "../guards.js";
-import { runPrecheck, makeRelayTrustCheckFn, shouldRunPrecheck, type PrecheckResult } from "./precheck.js";
+import { runPrecheck, makeX402TrustCheckFn, shouldRunPrecheck, type PrecheckResult } from "./precheck.js";
 
 /** Which wallet the agent should spend from. */
 export type WalletModeRequest = "eoa" | "agentic-local" | "agentic-server";
@@ -552,9 +552,10 @@ export async function runPay(input: PayInput): Promise<PaySummary> {
         counterpartyAddress: input.to,
         amountUsd: Number(input.amount),
         payToken: input.token,
-        hasUsdc: input.token === "USDC",
+        // hasUsdc intentionally omitted — defaults to true (conservative) in
+        // runPrecheck; callers without a balance lookup must not set it false.
       },
-      makeRelayTrustCheckFn({ apiKey: resolved.apiKey!, relayBaseUrl: CONFIG.relayBaseUrl }),
+      makeX402TrustCheckFn({ relayBaseUrl: CONFIG.relayBaseUrl }),
     );
 
     let resp: Response;
@@ -871,9 +872,10 @@ export async function runPay(input: PayInput): Promise<PaySummary> {
       counterpartyAddress: input.to,
       amountUsd: Number(input.amount),
       payToken: input.token,
-      hasUsdc: input.token === "USDC",
+      // hasUsdc intentionally omitted — defaults to true (conservative) in
+      // runPrecheck; callers without a balance lookup must not set it false.
     },
-    makeRelayTrustCheckFn({ apiKey: resolved.apiKey!, relayBaseUrl: CONFIG.relayBaseUrl }),
+    makeX402TrustCheckFn({ relayBaseUrl: CONFIG.relayBaseUrl }),
   );
 
   const client = new Q402NodeClient({
