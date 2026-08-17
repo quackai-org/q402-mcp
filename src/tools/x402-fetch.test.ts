@@ -148,7 +148,7 @@ describe("AC-3: valid x402 v2 parsing and guard pipeline", () => {
       );
       // Must not be a JSON parse error or schema error
       assert.ok(
-        !(result.error?.includes("malformed") || result.error?.includes("valid JSON")),
+        !(result.error?.includes("malformed") || result.error?.includes("PAYMENT-REQUIRED")),
         `error should not be parse failure: ${result.error}`,
       );
     } finally {
@@ -173,7 +173,7 @@ describe("AC-3: valid x402 v2 parsing and guard pipeline", () => {
     const restore = stubFetch([() => Promise.resolve(makeResponse(402, body))]);
     try {
       const result = await runX402Fetch({ url: "https://x402.example/api", confirm: true });
-      assert.ok(!(result.error?.includes("malformed") || result.error?.includes("valid JSON")));
+      assert.ok(!(result.error?.includes("malformed") || result.error?.includes("PAYMENT-REQUIRED")));
     } finally {
       restore();
     }
@@ -188,7 +188,7 @@ describe("AC-4: 402 parsing rejection", () => {
     try {
       const result = await runX402Fetch({ url: "https://x402.example/api", confirm: true });
       assert.strictEqual(result.success, false);
-      assert.ok(result.error?.includes("valid JSON"), `error: ${result.error}`);
+      assert.ok(result.error?.includes("PAYMENT-REQUIRED"), `error: ${result.error}`);
     } finally {
       restore();
     }
@@ -283,7 +283,7 @@ describe("AC-1: eip155:8453 is accepted as a valid network", () => {
         `eip155:8453 must be accepted, got: ${result.error}`,
       );
       assert.ok(
-        !(result.error?.includes("malformed") || result.error?.includes("valid JSON")),
+        !(result.error?.includes("malformed") || result.error?.includes("PAYMENT-REQUIRED")),
         `must not be a parse error: ${result.error}`,
       );
     } finally {
@@ -358,7 +358,7 @@ describe("AC-3: X-PAYMENT header preserves server-sent network verbatim", () => 
       async (_url: unknown, init?: unknown) => {
         const reqInit = init as RequestInit | undefined;
         const headers = (reqInit?.headers ?? {}) as Record<string, string>;
-        capturedXPayment = headers["X-PAYMENT"] ?? headers["x-payment"];
+        capturedXPayment = headers["PAYMENT-SIGNATURE"] ?? headers["payment-signature"] ?? headers["X-PAYMENT"] ?? headers["x-payment"];
         return makeResponse(200, '{"data":"caip2-content"}');
       },
     ]);
@@ -371,7 +371,7 @@ describe("AC-3: X-PAYMENT header preserves server-sent network verbatim", () => 
       });
 
       assert.strictEqual(result.success, true, `should succeed: ${result.error}`);
-      assert.ok(capturedXPayment !== undefined, "X-PAYMENT header was sent");
+      assert.ok(capturedXPayment !== undefined, "payment header (PAYMENT-SIGNATURE or X-PAYMENT) was sent");
 
       const decoded = JSON.parse(Buffer.from(capturedXPayment!, "base64").toString("utf-8"));
       assert.strictEqual(
@@ -614,7 +614,7 @@ describe("AC-8: X-PAYMENT header assembly and retry", () => {
       // Verify X-PAYMENT header was set
       assert.ok(capturedHeaders !== null, "retry was called");
       const headers = capturedHeaders as Record<string, string>;
-      const xPayment: string | undefined = headers["X-PAYMENT"] ?? headers["x-payment"];
+      const xPayment: string | undefined = headers["PAYMENT-SIGNATURE"] ?? headers["payment-signature"] ?? headers["X-PAYMENT"] ?? headers["x-payment"];
       assert.ok(typeof xPayment === "string", "X-PAYMENT header is a string");
       assert.ok(xPayment.length > 0, "X-PAYMENT header is not empty");
 
@@ -623,12 +623,16 @@ describe("AC-8: X-PAYMENT header assembly and retry", () => {
       assert.strictEqual(decoded.x402Version, 2, "x402Version is 2");
       assert.strictEqual(decoded.accepted?.scheme, "exact", "accepted.scheme is exact");
       assert.ok(decoded.accepted?.network === "base" || decoded.accepted?.network === "base-mainnet", "network is base");
-      assert.ok(typeof decoded.accepted?.payload?.signature === "string", "signature present");
-      assert.ok(decoded.accepted?.payload?.authorization?.from?.startsWith("0x"), "from address present");
-      assert.strictEqual(decoded.accepted?.payload?.authorization?.to?.toLowerCase(), SELLER.toLowerCase(), "to is payTo");
-      assert.strictEqual(decoded.accepted?.payload?.authorization?.value, "100", "value matches amount");
-      assert.strictEqual(decoded.accepted?.payload?.authorization?.validAfter, "0", "validAfter is 0");
-      assert.ok(typeof decoded.accepted?.payload?.authorization?.nonce === "string", "nonce present");
+      assert.ok(typeof decoded.payload?.signature === "string", "signature present");
+      assert.ok(decoded.payload?.authorization?.from?.startsWith("0x"), "from address present");
+      assert.strictEqual(decoded.payload?.authorization?.to?.toLowerCase(), SELLER.toLowerCase(), "to is payTo");
+      assert.strictEqual(decoded.payload?.authorization?.value, "100", "value matches amount");
+      assert.strictEqual(decoded.payload?.authorization?.validAfter, "0", "validAfter is 0");
+      assert.ok(typeof decoded.payload?.authorization?.nonce === "string", "nonce present");
+      // v2 contract: `accepted` echoes the chosen requirement verbatim (asset/amount/payTo present)
+      assert.strictEqual(decoded.accepted?.asset, BASE_USDC, "accepted echoes asset");
+      assert.strictEqual(decoded.accepted?.amount, "100", "accepted echoes amount");
+      assert.strictEqual(decoded.accepted?.payTo, SELLER, "accepted echoes payTo");
     } finally {
       restore();
       _setDelegationCheck(null);
@@ -742,7 +746,7 @@ describe("AC-9: audit records", () => {
       const result = await runX402Fetch({ url: "https://x402.example/api", confirm: true });
       // Blocked by JSON parse — no audit record written at that stage (parse errors before guard)
       assert.strictEqual(result.success, false);
-      assert.ok(result.error?.includes("valid JSON"));
+      assert.ok(result.error?.includes("PAYMENT-REQUIRED"));
     } finally {
       restore();
     }
@@ -776,5 +780,109 @@ describe("x402-audit-store: size/count cap and degradation", () => {
       network: "base", amountAtomic: "1", amountUsd: "0.01", status: "blocked_by_guard",
     };
     assert.doesNotThrow(() => saveX402AuditRecord(record, badPath));
+  });
+});
+
+// ── AC-9: v2 wire-format conformance (header name, challenge sources, echo) ────
+// Regression tests for the 2026-08 interop bugs: v2 payments MUST go out under
+// PAYMENT-SIGNATURE (v1 = X-PAYMENT), challenges may arrive via the
+// PAYMENT-REQUIRED response header, and challenge extensions must round-trip
+// with builder-code merged (not substituted).
+
+describe("AC-9: v2 wire-format conformance", () => {
+  const TEST_PK = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+
+  async function runPaid(bodyOrHeader: { body?: string; prHeader?: string }, url: string) {
+    process.env["Q402_ENABLE_REAL_PAYMENTS"] = "1";
+    process.env["Q402_AGENTIC_PRIVATE_KEY"] = TEST_PK;
+    _setDelegationCheck(async () => false);
+    resetSessionSpendUsd();
+    const { checkConsent } = await import("../consent.js");
+    const { expected: token } = checkConsent({
+      t: "x402_fetch", url, method: "GET", payTo: SELLER.toLowerCase(),
+      amountAtomic: "100", asset: BASE_USDC.toLowerCase(), network: "eip155:8453",
+    }, undefined);
+    let captured: Record<string, string> | null = null;
+    const restore = stubFetch([
+      () => {
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (bodyOrHeader.prHeader) headers["PAYMENT-REQUIRED"] = bodyOrHeader.prHeader;
+        return Promise.resolve(new Response(bodyOrHeader.body ?? "payment required", { status: 402, headers }));
+      },
+      async (_url: unknown, init?: unknown) => {
+        captured = ((init as RequestInit | undefined)?.headers ?? {}) as Record<string, string>;
+        return makeResponse(200, '{"ok":true}');
+      },
+    ]);
+    try {
+      const result = await runX402Fetch({ url, confirm: true, consentToken: token });
+      return { result, captured: captured as Record<string, string> | null };
+    } finally {
+      restore();
+      _setDelegationCheck(null);
+      delete process.env["Q402_ENABLE_REAL_PAYMENTS"];
+      delete process.env["Q402_AGENTIC_PRIVATE_KEY"];
+      resetSessionSpendUsd();
+    }
+  }
+
+  function v2Challenge(extensions?: Record<string, unknown>): string {
+    return JSON.stringify({
+      x402Version: 2,
+      resource: { url: "https://x402.example/api", description: "d" },
+      accepts: [{
+        scheme: "exact", network: "eip155:8453", asset: BASE_USDC,
+        amount: "100", payTo: SELLER, maxTimeoutSeconds: 300,
+        extra: { name: "USD Coin", version: "2" },
+      }],
+      ...(extensions ? { extensions } : {}),
+    });
+  }
+
+  test("v2 challenge → payment sent under PAYMENT-SIGNATURE, not X-PAYMENT", async () => {
+    const { result, captured } = await runPaid({ body: v2Challenge() }, "https://x402.example/api");
+    assert.strictEqual(result.success, true, `should pay: ${result.error}`);
+    assert.ok(captured?.["PAYMENT-SIGNATURE"], "PAYMENT-SIGNATURE present");
+    assert.strictEqual(captured?.["X-PAYMENT"], undefined, "X-PAYMENT absent on v2");
+    const decoded = JSON.parse(Buffer.from(captured!["PAYMENT-SIGNATURE"], "base64").toString());
+    assert.strictEqual(decoded.x402Version, 2);
+    assert.ok(decoded.payload?.signature, "payload.signature at TOP level");
+    assert.strictEqual(decoded.accepted?.amount, "100", "accepted echoes requirement");
+  });
+
+  test("v1 challenge → payment sent under X-PAYMENT with v1 top-level shape", async () => {
+    const body = JSON.stringify({
+      x402Version: 1,
+      accepts: [{ scheme: "exact", network: "eip155:8453", asset: BASE_USDC,
+        maxAmountRequired: "100", payTo: SELLER, maxTimeoutSeconds: 300 }],
+    });
+    const { result, captured } = await runPaid({ body }, "https://x402.example/api");
+    assert.strictEqual(result.success, true, `should pay: ${result.error}`);
+    assert.ok(captured?.["X-PAYMENT"], "X-PAYMENT present on v1");
+    const decoded = JSON.parse(Buffer.from(captured!["X-PAYMENT"], "base64").toString());
+    assert.strictEqual(decoded.x402Version, 1);
+    assert.strictEqual(decoded.scheme, "exact", "v1 keeps top-level scheme");
+    assert.ok(decoded.payload?.signature, "v1 payload.signature");
+  });
+
+  test("challenge in PAYMENT-REQUIRED header (non-JSON body) is parsed and paid", async () => {
+    const prHeader = Buffer.from(v2Challenge()).toString("base64");
+    const { result } = await runPaid({ prHeader }, "https://x402.example/api");
+    assert.strictEqual(result.success, true, `should pay from header challenge: ${result.error}`);
+  });
+
+  test("challenge extensions round-trip with builder-code merged, not substituted", async () => {
+    process.env["Q402_BUILDER_CODE"] = "bc_test1234";
+    try {
+      const ext = { bazaar: { info: { input: { type: "http" } } }, "builder-code": { declared: true } };
+      const { result, captured } = await runPaid({ body: v2Challenge(ext) }, "https://x402.example/api");
+      assert.strictEqual(result.success, true, `should pay: ${result.error}`);
+      const decoded = JSON.parse(Buffer.from(captured!["PAYMENT-SIGNATURE"], "base64").toString());
+      assert.deepStrictEqual(decoded.extensions?.bazaar, ext.bazaar, "bazaar echoed verbatim");
+      assert.strictEqual(decoded.extensions?.["builder-code"]?.declared, true, "declared builder-code preserved");
+      assert.strictEqual(decoded.extensions?.["builder-code"]?.s, "bc_test1234", "our s merged in");
+    } finally {
+      delete process.env["Q402_BUILDER_CODE"];
+    }
   });
 });

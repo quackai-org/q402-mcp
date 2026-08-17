@@ -138,19 +138,29 @@ export type X402FetchInput = z.infer<typeof X402FetchInputSchema>;
 
 // ── x402 v2 response schema ────────────────────────────────────────────────────
 
+// `.passthrough()` keeps fields we don't model (extra, mimeType, description…):
+// the v2 X-PAYMENT header must echo the chosen requirement VERBATIM under
+// `accepted`, so dropping unknown keys corrupts the payment. `amount` is the
+// v2 name; v1-era sellers send `maxAmountRequired` — accept either.
 const X402RequirementSchema = z.object({
   scheme:             z.string(),
   network:            z.string(),
   asset:              z.string(),
-  amount:             z.string(),
+  amount:             z.string().optional(),
+  maxAmountRequired:  z.string().optional(),
   payTo:              z.string(),
   maxTimeoutSeconds:  z.number().optional(),
+}).passthrough().refine(a => (a.amount ?? a.maxAmountRequired) !== undefined, {
+  message: "requirement needs amount (v2) or maxAmountRequired (v1)",
 });
 
 const X402ResponseSchema = z.object({
+  x402Version: z.number().optional(),
   version: z.number().optional(),
+  resource: z.record(z.unknown()).optional(),
+  extensions: z.record(z.unknown()).optional(),
   accepts: z.array(X402RequirementSchema).min(1),
-});
+}).passthrough();
 type X402Requirement = z.infer<typeof X402RequirementSchema>;
 
 // ── Result shape ───────────────────────────────────────────────────────────────
@@ -255,35 +265,73 @@ function buildXPaymentHeader(params: {
   validBefore:  string;
   nonce:        string;
   signature:    string;
-  network:      string;
+  requirement:  X402Requirement;
+  resource?:    Record<string, unknown>;
+  challengeExtensions?: Record<string, unknown>;
+  challengeVersion: number;
   builderCode?: string;
-}): string {
-  // x402 v2: scheme/network/payload wrapped under `accepted`; extensions at top level.
-  // v1 had `extensions` at the top level too, but the CDP facilitator only honors it
-  // when x402Version=2, so the builder-code attribution was silently dropped on v1.
-  const header: Record<string, unknown> = {
-    x402Version: 2,
-    accepted: {
-      scheme: "exact",
-      network: params.network,
-      payload: {
-        signature: params.signature,
-        authorization: {
-          from:        params.from,
-          to:          params.payTo,
-          value:       params.amountAtomic,
-          validAfter:  "0",
-          validBefore: params.validBefore,
-          nonce:       params.nonce,
-        },
-      },
-    },
+}): { headerName: string; value: string } {
+  // Official x402 v2 PaymentPayload (@x402/core): `accepted` = the CHOSEN
+  // requirement echoed verbatim, `payload` = {signature, authorization} at the
+  // TOP level, and the challenge's `resource`/`extensions` echoed back. Sellers
+  // and facilitators validate against this shape — nesting payload inside
+  // `accepted` (our previous layout) fails verification everywhere.
+  const accepted: Record<string, unknown> = {
+    ...params.requirement,
+    amount: params.amountAtomic,
   };
   // Field `s` = service/client code; `a` (app) omitted unless the server declares it.
+  // The challenge's extensions must round-trip VERBATIM — sellers enforce this
+  // (observed: Bitrefill rejects with `extension_echo_mismatch` otherwise). So:
+  // never replace a declared extension, only merge our `s` into a declared
+  // builder-code slot; add a fresh builder-code entry only when the seller
+  // declared none (CDP tolerates additive client extensions).
+  const extensions: Record<string, unknown> = { ...(params.challengeExtensions ?? {}) };
   if (params.builderCode) {
-    header["extensions"] = { "builder-code": { s: params.builderCode } };
+    const declared = extensions["builder-code"];
+    extensions["builder-code"] =
+      typeof declared === "object" && declared !== null
+        ? { ...(declared as Record<string, unknown>), s: params.builderCode }
+        : { s: params.builderCode };
   }
-  return Buffer.from(JSON.stringify(header)).toString("base64");
+  const authorization = {
+    from:        params.from,
+    to:          params.payTo,
+    value:       params.amountAtomic,
+    validAfter:  "0",
+    validBefore: params.validBefore,
+    nonce:       params.nonce,
+  };
+  // Wire format is VERSION-SPECIFIC, including the HTTP header NAME:
+  //   v2 → PaymentPayload {x402Version:2, resource?, accepted, payload, extensions?}
+  //        sent under `PAYMENT-SIGNATURE`
+  //   v1 → {x402Version:1, scheme, network, payload} sent under `X-PAYMENT`
+  // Sending a v2 body under the v1 header name fails verification at every
+  // v2 seller (their middleware reads PAYMENT-SIGNATURE only).
+  if (params.challengeVersion >= 2) {
+    const header: Record<string, unknown> = {
+      x402Version: 2,
+      ...(params.resource ? { resource: params.resource } : {}),
+      accepted,
+      payload: { signature: params.signature, authorization },
+      ...(Object.keys(extensions).length > 0 ? { extensions } : {}),
+    };
+    return {
+      headerName: "PAYMENT-SIGNATURE",
+      value: Buffer.from(JSON.stringify(header)).toString("base64"),
+    };
+  }
+  const v1Header: Record<string, unknown> = {
+    x402Version: 1,
+    scheme: "exact",
+    network: params.requirement.network,
+    payload: { signature: params.signature, authorization },
+    ...(Object.keys(extensions).length > 0 ? { extensions } : {}),
+  };
+  return {
+    headerName: "X-PAYMENT",
+    value: Buffer.from(JSON.stringify(v1Header)).toString("base64"),
+  };
 }
 
 // ── Main runner ────────────────────────────────────────────────────────────────
@@ -338,15 +386,27 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
     };
   }
 
-  // ── Step 3: parse x402 v2 body ──────────────────────────────────────────────
-  let raw402: unknown;
+  // ── Step 3: parse the challenge — JSON body, or PAYMENT-REQUIRED header ─────
+  // Body-based challenges are the common case; some sellers (header-based x402
+  // middlewares) put the base64 PaymentRequired JSON in a PAYMENT-REQUIRED
+  // response header instead, with a non-JSON or requirement-free body.
+  let raw402: unknown = null;
   try {
     raw402 = await initialResp.json();
-  } catch {
+  } catch { /* fall through to header */ }
+  if (raw402 === null || typeof raw402 !== "object" || !("accepts" in (raw402 as Record<string, unknown>))) {
+    const prHeader = initialResp.headers.get("payment-required");
+    if (prHeader) {
+      try {
+        raw402 = JSON.parse(Buffer.from(prHeader, "base64").toString("utf8"));
+      } catch { /* keep body value; schema error below reports it */ }
+    }
+  }
+  if (raw402 === null) {
     return {
       success: false,
       statusCode: 402,
-      error: "x402: 402 response body is not valid JSON",
+      error: "x402: 402 response has neither a JSON body nor a PAYMENT-REQUIRED header",
     };
   }
 
@@ -360,7 +420,12 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
   }
 
   // ── Step 4: select a supported requirement ───────────────────────────────────
-  const req = selectRequirement(parsed.data.accepts);
+  const selected = selectRequirement(parsed.data.accepts);
+  // Normalize v1's maxAmountRequired onto `amount` so every downstream use —
+  // guards, audit, consent, signing, the accepted echo — sees one field.
+  const req = selected === null
+    ? null
+    : { ...selected, amount: selected.amount ?? selected.maxAmountRequired! };
   if (!req) {
     const seen = parsed.data.accepts
       .map(a => `scheme=${a.scheme}/network=${a.network}/asset=${a.asset}`)
@@ -537,7 +602,10 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
     validBefore:  signed.validBefore,
     nonce:        signed.nonce,
     signature:    signed.signature,
-    network:      req.network,
+    requirement:  req,
+    resource:     parsed.data.resource,
+    challengeExtensions: parsed.data.extensions,
+    challengeVersion: parsed.data.x402Version ?? parsed.data.version ?? 1,
     builderCode:  getBuilderCode(),
   });
 
@@ -547,7 +615,7 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
       method,
       headers: {
         "Content-Type": "application/json",
-        "X-PAYMENT": xPayment,
+        [xPayment.headerName]: xPayment.value,
       },
       ...(input.body !== undefined ? { body: input.body } : {}),
       signal: AbortSignal.timeout(30_000),
