@@ -51,7 +51,7 @@
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run lint && npm run build",
     "start": "node dist/index.js",
-    "test": "tsup --config tsup.test.config.ts && node scripts/fix-test-imports.cjs && node --import ./scripts/test-setup.mjs --test dist-test/config.test.js dist-test/travala/travala.test.js dist-test/travala/live-adapter.test.js dist-test/sandbox-receipt.test.js dist-test/tools/x402-fetch.test.js dist-test/tools/guards.test.js dist-test/tools/delegation-selfheal.test.js"
+    "test": "tsup --config tsup.test.config.ts && node scripts/fix-test-imports.cjs && node --import ./scripts/test-setup.mjs --test dist-test/config.test.js dist-test/travala/travala.test.js dist-test/travala/live-adapter.test.js dist-test/sandbox-receipt.test.js dist-test/tools/x402-fetch.test.js dist-test/tools/guards.test.js dist-test/tools/delegation-selfheal.test.js dist-test/tools/precheck.test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
