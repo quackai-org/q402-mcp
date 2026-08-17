@@ -20,7 +20,7 @@ Q402 supports two payment patterns on Base. This page helps agents (and their op
 - Release requires a buyer-signed EIP-712 message; refund is permissionless after the deadline.
 - Use when: delivery is uncertain, the service is complex / multi-step, the counterparty is new, or the amount is large enough to warrant protection.
 - Optional arbiter enables dispute resolution (a third party who can split or redirect the funds).
-- Chain availability: BNB mainnet (live), Base Sepolia (testnet, for testing), Base mainnet (pending deploy — use BNB for production until mainnet launch).
+- Chain availability: BNB mainnet (live). Base and Base Sepolia: client enum is wired; vault not yet deployed on either — use BNB for production and testing until contracts are deployed.
 
 ---
 
@@ -45,7 +45,7 @@ Payment needed
 │           └── Set `releaseDays` (default 7, max 90 days)
 │
 └── Are you testing on Base?
-    └── Use chain="base-sepolia" (testnet; no real funds)
+    └── chain="base-sepolia" is wired in the enum but vault not yet deployed — use chain="sepolia" (Ethereum Sepolia) for testnet until Base contracts are live
 ```
 
 ---
@@ -54,7 +54,7 @@ Payment needed
 
 - **Small routine payments** (API fees, per-call charges): the overhead of create → lock → release is not worth it. Use `q402_pay`.
 - **x402-gated APIs**: use `q402_x402_fetch` — it pays the API's HTTP 402 challenge inline, no escrow needed.
-- **Base mainnet production** (as of August 2026): the escrow vault is not yet deployed on Base mainnet. Use `chain="bnb"` for production escrow or `chain="base-sepolia"` for testnet. Track the deploy in the ops runbook (`docs/ESCROW-BASE-DEPLOY-RUNBOOK.md`).
+- **Base escrow** (as of August 2026): the escrow vault is not yet deployed on Base mainnet or Base Sepolia. Use `chain="bnb"` for production escrow. The enum entries for `base` and `base-sepolia` are ready client-side; the server will gate them via `/escrow/info` until contracts are deployed. Track the deploy in the ops runbook (`docs/ESCROW-BASE-DEPLOY-RUNBOOK.md`).
 
 ---
 
@@ -64,7 +64,7 @@ Payment needed
 |-----------|-------------------|------|
 | Production instant payment on Base | `base` | `q402_pay` |
 | Production escrowed payment | `bnb` | `q402_escrow_*` |
-| Testnet escrow on Base | `base-sepolia` | `q402_escrow_*` |
+| Testnet escrow (until Base Sepolia contracts deploy) | `sepolia` | `q402_escrow_*` |
 | Production escrow on Base (future) | `base` (after mainnet deploy) | `q402_escrow_*` |
 
 ---
@@ -79,7 +79,7 @@ Payment needed
 | Arbiter supported? | No | Yes (optional) |
 | Gas | Sponsored by Q402 | Sponsored by Q402 relayer |
 | Base mainnet | Live | Pending deploy (use BNB) |
-| Base Sepolia | Live (testnet) | Live (testnet) |
+| Base Sepolia | Live (testnet) | Enum wired; vault not yet deployed |
 
 ---
 

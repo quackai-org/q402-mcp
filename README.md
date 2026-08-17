@@ -224,9 +224,9 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 | `q402_request_status` | none | Look up a payment request by `req_…` id (amount, token, chain, recipient, status). Read-only; `notFound` instead of throwing. |
 | `q402_request_pay` | live mode | Pay a request gaslessly from the payer's own Agent Wallet (Mode C). Terms come from the stored request, so they can't be redirected. Two-phase consent (same as `q402_pay`). |
 | **Escrow** | | |
-| `q402_escrow_create` | api key | Create a gasless non-custodial escrow (pending record, moves no funds); optional `walletId` funds it from an Agent Wallet. Live on BNB mainnet (USDC/USDT); Base Sepolia testnet available; Base mainnet pending deploy. |
+| `q402_escrow_create` | api key | Create a gasless non-custodial escrow (pending record, moves no funds); optional `walletId` funds it from an Agent Wallet. Live on BNB mainnet (USDC/USDT); Base and Base Sepolia: enum wired, vault not yet deployed. |
 | `q402_escrow_status` | none | Read an escrow's state, parties, amount, and tx hashes. Read-only. |
-| `q402_escrow_lock` | live mode | Fund a pending escrow gaslessly (EIP-7702); the server signs for an Agent-Wallet buyer. Sandbox-by-default. Live on BNB mainnet; Base Sepolia available. |
+| `q402_escrow_lock` | live mode | Fund a pending escrow gaslessly (EIP-7702); the server signs for an Agent-Wallet buyer. Sandbox-by-default. Live on BNB mainnet; Base and Base Sepolia: vault not yet deployed. |
 | `q402_escrow_release` | live mode | Buyer releases a locked escrow to the seller (gasless). Sandbox-by-default. |
 | `q402_escrow_refund` | live mode | Permissionless refund to the buyer after the timeout / resolve window. |
 | `q402_escrow_dispute` | live mode | A party disputes an open escrow (requires a named arbiter). |

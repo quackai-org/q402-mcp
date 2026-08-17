@@ -11,8 +11,8 @@
 |------|-------|
 | Base mainnet RPC | e.g. `https://mainnet.base.org` or a private node |
 | Deployer EOA | holds ETH for gas; must be distinct from the relayer wallet |
-| Q402EscrowVault bytecode + ABI | compiled from `q402-avalanche` (contract source; verify commit hash against the audited artifact) |
-| Q402EscrowLockImpl bytecode + ABI | same source tree |
+| Q402EscrowVault bytecode + ABI | compiled from the audited contract source repository (verify commit hash against the audited artifact) |
+| Q402EscrowLockImpl bytecode + ABI | same source repository |
 | BaseScan API key | for `--verify` flag |
 | Relayer EOA | the address that will relay lock txs; needs ETH for gas |
 | USDC address on Base | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` (native Circle) |
@@ -23,7 +23,7 @@
 ## Step 1 — Deploy Q402EscrowLockImpl
 
 ```bash
-# Example using cast / forge deploy script from q402-avalanche repo
+# Example using cast / forge deploy script from the contract source repository
 forge script script/DeployLockImpl.s.sol \
   --rpc-url https://mainnet.base.org \
   --broadcast \
