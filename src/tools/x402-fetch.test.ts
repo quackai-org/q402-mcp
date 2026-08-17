@@ -844,7 +844,7 @@ describe("AC-9: v2 wire-format conformance", () => {
     assert.strictEqual(result.success, true, `should pay: ${result.error}`);
     assert.ok(captured?.["PAYMENT-SIGNATURE"], "PAYMENT-SIGNATURE present");
     assert.strictEqual(captured?.["X-PAYMENT"], undefined, "X-PAYMENT absent on v2");
-    const decoded = JSON.parse(Buffer.from(captured!["PAYMENT-SIGNATURE"], "base64").toString());
+    const decoded = JSON.parse(Buffer.from(captured!["PAYMENT-SIGNATURE"]!, "base64").toString());
     assert.strictEqual(decoded.x402Version, 2);
     assert.ok(decoded.payload?.signature, "payload.signature at TOP level");
     assert.strictEqual(decoded.accepted?.amount, "100", "accepted echoes requirement");
@@ -859,7 +859,7 @@ describe("AC-9: v2 wire-format conformance", () => {
     const { result, captured } = await runPaid({ body }, "https://x402.example/api");
     assert.strictEqual(result.success, true, `should pay: ${result.error}`);
     assert.ok(captured?.["X-PAYMENT"], "X-PAYMENT present on v1");
-    const decoded = JSON.parse(Buffer.from(captured!["X-PAYMENT"], "base64").toString());
+    const decoded = JSON.parse(Buffer.from(captured!["X-PAYMENT"]!, "base64").toString());
     assert.strictEqual(decoded.x402Version, 1);
     assert.strictEqual(decoded.scheme, "exact", "v1 keeps top-level scheme");
     assert.ok(decoded.payload?.signature, "v1 payload.signature");
@@ -877,7 +877,7 @@ describe("AC-9: v2 wire-format conformance", () => {
       const ext = { bazaar: { info: { input: { type: "http" } } }, "builder-code": { declared: true } };
       const { result, captured } = await runPaid({ body: v2Challenge(ext) }, "https://x402.example/api");
       assert.strictEqual(result.success, true, `should pay: ${result.error}`);
-      const decoded = JSON.parse(Buffer.from(captured!["PAYMENT-SIGNATURE"], "base64").toString());
+      const decoded = JSON.parse(Buffer.from(captured!["PAYMENT-SIGNATURE"]!, "base64").toString());
       assert.deepStrictEqual(decoded.extensions?.bazaar, ext.bazaar, "bazaar echoed verbatim");
       assert.strictEqual(decoded.extensions?.["builder-code"]?.declared, true, "declared builder-code preserved");
       assert.strictEqual(decoded.extensions?.["builder-code"]?.s, "bc_test1234", "our s merged in");
