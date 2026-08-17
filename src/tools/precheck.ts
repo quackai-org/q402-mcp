@@ -7,7 +7,8 @@
  *
  * Cache (AC-D2):
  *   Verdict cached 7 days per counterparty address. Cache hits are returned
- *   without triggering a second charge/settlement.
+ *   without triggering a second charge/settlement. Cache is persisted to
+ *   ~/.q402/precheck-cache.json so it survives MCP restarts.
  *
  * Opt-out (AC-D3):
  *   Q402_DISABLE_PRECHECK=1 disables pre-check entirely.
@@ -23,6 +24,17 @@
  * Trial users with USDC pay normally — no blanket free-check for trial plans.
  */
 
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, dirname } from "node:path";
+
+import {
+  signEip3009,
+  buildXPaymentHeader,
+  getBuilderCode,
+  pickSigningKey,
+} from "./x402-fetch.js";
+
 /** Environment variable to disable pre-check globally (opt-out). */
 export const PRECHECK_OPT_OUT_ENV = "Q402_DISABLE_PRECHECK";
 
@@ -31,6 +43,9 @@ export const PRECHECK_FEE_USD = 0.02;
 
 /** Verdict cache TTL: 7 days in milliseconds. */
 const VERDICT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Default path for the persistent verdict cache file. */
+export const PRECHECK_CACHE_PATH = join(homedir(), ".q402", "precheck-cache.json");
 
 export interface PrecheckVerdict {
   address: string;
@@ -51,7 +66,7 @@ export interface PrecheckResult {
   verdict?: PrecheckVerdict;
   /** True when the verdict was served from cache (no charge). */
   fromCache: boolean;
-  /** True when a paid trust-check was performed and a charge occurred. */
+  /** True when a paid trust-check was performed and an on-chain settlement occurred. */
   charged: boolean;
 }
 
@@ -69,19 +84,24 @@ export interface PrecheckContext {
   payToken: string;
   /**
    * Whether the wallet has any USDC available for fees.
-   * When payToken is "USDC" this is implicitly true; otherwise it must be
-   * provided by the caller. Defaults to true when undefined (conservative —
-   * avoids spurious free-fallback when we can't determine balance).
+   * When undefined, defaults to true (conservative — avoids spurious
+   * free-fallback when we can't determine balance). Only set to false
+   * when the caller has confirmed no USDC is available.
    */
   hasUsdc?: boolean;
 }
 
-/** Injected trust-check function type. Resolves with risk + flags on success. */
+/**
+ * Injected trust-check function type.
+ * settled=true when an x402 payment actually settled on-chain.
+ * settled=false when the server returned a verdict without charging (e.g. cached server-side).
+ * settled=undefined (from test mocks) defaults to true for backwards-compat.
+ */
 export type TrustCheckFn = (
   address: string,
-) => Promise<Pick<PrecheckVerdict, "risk" | "flags">>;
+) => Promise<Pick<PrecheckVerdict, "risk" | "flags"> & { settled?: boolean }>;
 
-// ── Internal state (module-level, reset in tests via resetPrecheckState) ───────
+// ── Persistent verdict cache ───────────────────────────────────────────────────
 
 interface VerdictEntry {
   verdict: PrecheckVerdict;
@@ -89,8 +109,59 @@ interface VerdictEntry {
 }
 
 const _verdictCache = new Map<string, VerdictEntry>();
+let _cacheLoaded = false;
+
+// Injected by tests to avoid touching ~/.q402/precheck-cache.json during test runs.
+let _cachePathOverride: string | null = null;
+
+/** Tests only: override the cache file path (null restores the default). */
+export function _overrideCachePath(p: string | null): void {
+  _cachePathOverride = p;
+  _verdictCache.clear();
+  _cacheLoaded = false;
+}
+
+function _effectiveCachePath(): string {
+  return _cachePathOverride ?? PRECHECK_CACHE_PATH;
+}
+
+function _loadCacheFile(): void {
+  if (_cacheLoaded) return;
+  _cacheLoaded = true;
+  try {
+    const path = _effectiveCachePath();
+    if (!existsSync(path)) return;
+    const raw = readFileSync(path, "utf-8");
+    const parsed = JSON.parse(raw) as Record<string, VerdictEntry>;
+    const now = Date.now();
+    for (const [k, v] of Object.entries(parsed)) {
+      if (v && typeof v.expiresAt === "number" && v.expiresAt > now) {
+        _verdictCache.set(k, v);
+      }
+    }
+  } catch {
+    // corrupt or missing file — start with empty cache
+  }
+}
+
+function _persistCacheFile(): void {
+  try {
+    const path = _effectiveCachePath();
+    mkdirSync(dirname(path), { recursive: true });
+    const obj: Record<string, VerdictEntry> = {};
+    for (const [k, v] of _verdictCache.entries()) {
+      obj[k] = v;
+    }
+    writeFileSync(path, JSON.stringify(obj, null, 2), "utf-8");
+  } catch (e) {
+    process.stderr.write(
+      `[q402-mcp] precheck cache write failed: ${e instanceof Error ? e.message : String(e)}\n`,
+    );
+  }
+}
 
 export function getVerdictFromCache(address: string): PrecheckVerdict | null {
+  _loadCacheFile();
   const key = address.toLowerCase();
   const entry = _verdictCache.get(key);
   if (!entry) return null;
@@ -102,10 +173,12 @@ export function getVerdictFromCache(address: string): PrecheckVerdict | null {
 }
 
 export function setVerdictInCache(address: string, verdict: PrecheckVerdict): void {
+  _loadCacheFile();
   _verdictCache.set(address.toLowerCase(), {
     verdict,
     expiresAt: Date.now() + VERDICT_TTL_MS,
   });
+  _persistCacheFile();
 }
 
 /** Overwrite the cache entry's expiry for testing TTL expiry scenarios. */
@@ -114,11 +187,21 @@ export function expireVerdictInCache(address: string): void {
   const entry = _verdictCache.get(key);
   if (entry) {
     _verdictCache.set(key, { ...entry, expiresAt: Date.now() - 1 });
+    _persistCacheFile();
   }
 }
 
 export function resetPrecheckState(): void {
   _verdictCache.clear();
+  _cacheLoaded = false;
+  // Write empty cache to disk so tests don't leak state across runs.
+  try {
+    const path = _effectiveCachePath();
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, "{}", "utf-8");
+  } catch {
+    // best-effort — if we can't write, cache will just be re-read next time
+  }
 }
 
 // ── Core logic ─────────────────────────────────────────────────────────────────
@@ -184,7 +267,7 @@ export function checkFeeAffordability(opts: {
  * Run the pre-check. Never throws; never blocks the main transaction.
  *
  * @param ctx   Payment context.
- * @param trustCheckFn  Injected trust-check function (production: relay call;
+ * @param trustCheckFn  Injected trust-check function (production: x402 call;
  *                      tests: mock).
  */
 export async function runPrecheck(
@@ -214,7 +297,9 @@ export async function runPrecheck(
   }
 
   // Determine fee affordability before attempting the paid check.
-  const hasUsdc = ctx.hasUsdc ?? (ctx.payToken === "USDC");
+  // Default hasUsdc to true (conservative) when not specified — avoids
+  // spurious case-b degradation when the caller doesn't know the USDC balance.
+  const hasUsdc = ctx.hasUsdc ?? true;
   const degradationReason = checkFeeAffordability({
     walletUsdcBalanceUsd: ctx.walletUsdcBalanceUsd,
     transferAmountUsd: ctx.amountUsd,
@@ -249,9 +334,16 @@ export async function runPrecheck(
   // Paid trust check.
   try {
     const raw = await trustCheckFn(addr);
-    const verdict: PrecheckVerdict = { ...raw, address: addr, isFree: false };
+    const verdict: PrecheckVerdict = {
+      risk: raw.risk,
+      flags: raw.flags,
+      address: addr,
+      isFree: false,
+    };
     setVerdictInCache(addr, verdict);
-    return { ran: true, reason: "paid", verdict, fromCache: false, charged: true };
+    // charged=true only when an actual on-chain settlement occurred.
+    // raw.settled=undefined (legacy mocks) → treat as charged.
+    return { ran: true, reason: "paid", verdict, fromCache: false, charged: raw.settled ?? true };
   } catch (err) {
     // Never block the main transaction on pre-check failure.
     process.stderr.write(
@@ -262,28 +354,112 @@ export async function runPrecheck(
   }
 }
 
+// ── x402 trust-check Base USDC constants ──────────────────────────────────────
+
+const BASE_USDC_ADDRESS_LC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+
+interface TrustCheckX402Req {
+  scheme: string;
+  network: string;
+  asset: string;
+  amount: string;
+  payTo: string;
+  maxTimeoutSeconds?: number;
+}
+
+function selectTrustCheckReq(accepts: TrustCheckX402Req[]): TrustCheckX402Req | null {
+  return accepts.find(a =>
+    a.scheme === "exact" &&
+    (a.network === "base" || a.network === "base-mainnet" || a.network === "eip155:8453") &&
+    a.asset.toLowerCase() === BASE_USDC_ADDRESS_LC,
+  ) ?? null;
+}
+
 /**
- * Build the production TrustCheckFn that calls the Q402 relay.
- * Exported so pay.ts can wire it in without importing CONFIG directly.
+ * Build the production TrustCheckFn using the x402 payment protocol.
+ *
+ * Flow:
+ *   1. GET {relayBaseUrl}/api/x402/agent-trust/{address}
+ *   2. 200 → return verdict immediately (settled=false, no charge)
+ *   3. 402 → parse x402 body, sign EIP-3009 for Base USDC, retry with X-PAYMENT
+ *   4. 200 retry → return verdict (settled=true, charge occurred)
+ *
+ * Never blocks the main transaction — errors propagate to runPrecheck's catch.
  */
-export function makeRelayTrustCheckFn(opts: {
-  apiKey: string;
+export function makeX402TrustCheckFn(opts: {
   relayBaseUrl: string;
 }): TrustCheckFn {
   return async (address: string) => {
-    const resp = await fetch(`${opts.relayBaseUrl}/trust/check`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey: opts.apiKey, address }),
+    const url = `${opts.relayBaseUrl}/api/x402/agent-trust/${address}`;
+
+    // Step 1: initial GET
+    const resp1 = await fetch(url, {
       signal: AbortSignal.timeout(15_000),
     });
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => "");
-      throw new Error(`trust/check HTTP ${resp.status}: ${body}`);
+
+    if (resp1.status === 200) {
+      // Server returned a verdict without requiring payment (cached or free tier).
+      const data = (await resp1.json()) as { risk?: string; flags?: string[] };
+      const risk = (["low", "medium", "high"].includes(data.risk ?? "") ? data.risk : "unknown") as
+        PrecheckVerdict["risk"];
+      return { risk, flags: Array.isArray(data.flags) ? data.flags : [], settled: false };
     }
-    const data = (await resp.json()) as { risk?: string; flags?: string[] };
-    const risk = (["low", "medium", "high"].includes(data.risk ?? "") ? data.risk : "unknown") as
+
+    if (resp1.status !== 402) {
+      const body = await resp1.text().catch(() => "");
+      throw new Error(`trust-check HTTP ${resp1.status}: ${body.slice(0, 200)}`);
+    }
+
+    // Step 2: parse x402 body
+    const raw402 = (await resp1.json()) as { accepts?: unknown[] };
+    const req = selectTrustCheckReq((raw402.accepts ?? []) as TrustCheckX402Req[]);
+    if (!req) {
+      throw new Error("trust-check: 402 response has no supported Base USDC payment option");
+    }
+
+    // Step 3: get signing key
+    const signingKey = pickSigningKey();
+    if (!signingKey) {
+      throw new Error(
+        "trust-check: no signing key configured " +
+        "(set Q402_AGENTIC_PRIVATE_KEY or Q402_PRIVATE_KEY)",
+      );
+    }
+
+    // Step 4: sign EIP-3009
+    const signed = await signEip3009(
+      signingKey,
+      req.payTo,
+      req.amount,
+      req.maxTimeoutSeconds ?? 300,
+    );
+
+    // Step 5: build X-PAYMENT header with builder-code attribution
+    const xPayment = buildXPaymentHeader({
+      from:         signed.from,
+      payTo:        req.payTo,
+      amountAtomic: req.amount,
+      validBefore:  signed.validBefore,
+      nonce:        signed.nonce,
+      signature:    signed.signature,
+      network:      req.network,
+      builderCode:  getBuilderCode(),
+    });
+
+    // Step 6: retry GET with X-PAYMENT header
+    const resp2 = await fetch(url, {
+      headers: { "X-PAYMENT": xPayment },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!resp2.ok) {
+      const body = await resp2.text().catch(() => "");
+      throw new Error(`trust-check x402 retry HTTP ${resp2.status}: ${body.slice(0, 200)}`);
+    }
+
+    const data2 = (await resp2.json()) as { risk?: string; flags?: string[] };
+    const risk = (["low", "medium", "high"].includes(data2.risk ?? "") ? data2.risk : "unknown") as
       PrecheckVerdict["risk"];
-    return { risk, flags: Array.isArray(data.flags) ? data.flags : [] };
+    return { risk, flags: Array.isArray(data2.flags) ? data2.flags : [], settled: true };
   };
 }

@@ -221,7 +221,7 @@ function writeAudit(fields: {
 
 // ── Signing ────────────────────────────────────────────────────────────────────
 
-async function signEip3009(
+export async function signEip3009(
   privateKey: string,
   payTo: string,
   amountAtomic: string,
@@ -252,13 +252,13 @@ async function signEip3009(
 // Validates the builder code format: 1-32 lowercase letters/numbers/underscores.
 const BUILDER_CODE_RE = /^[a-z0-9_]{1,32}$/;
 
-function getBuilderCode(): string | undefined {
+export function getBuilderCode(): string | undefined {
   const raw = dynEnv("Q402_BUILDER_CODE");
   if (!raw || !BUILDER_CODE_RE.test(raw)) return undefined;
   return raw;
 }
 
-function buildXPaymentHeader(params: {
+export function buildXPaymentHeader(params: {
   from:        string;
   payTo:       string;
   amountAtomic: string;
@@ -336,7 +336,7 @@ function buildXPaymentHeader(params: {
 
 // ── Main runner ────────────────────────────────────────────────────────────────
 
-function pickSigningKey(): string | null {
+export function pickSigningKey(): string | null {
   const agentKey = dynEnv("Q402_AGENTIC_PRIVATE_KEY") ?? null;
   if (isValidPrivateKey(agentKey)) return agentKey;
   const eoaKey = dynEnv("Q402_PRIVATE_KEY") ?? null;
