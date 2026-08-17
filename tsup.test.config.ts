@@ -9,6 +9,7 @@ export default defineConfig({
     "src/tools/x402-fetch.test.ts",
     "src/tools/guards.test.ts",
     "src/tools/delegation-selfheal.test.ts",
+    "src/tools/precheck.test.ts",
   ],
   format: ["esm"],
   platform: "node",
