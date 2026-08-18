@@ -64,9 +64,9 @@ export const PayInputSchema = z.object({
     .describe(
       'Which API key to use. "auto" (default): trial-eligible chain + ' +
         'Q402_TRIAL_API_KEY set → Trial (free sponsored); else Multichain. ' +
-        '"trial" forces the Trial sponsored key (BNB + Avalanche permanently; ' +
-        'Mantle limited-time 2026-08-21~08-28 UTC+9). "multichain" forces ' +
-        'the paid 12-chain key. Same rule applies to q402_batch_pay.',
+        '"trial" forces the Trial sponsored key (BNB Chain permanently; ' +
+        'Mantle limited-time 2026-08-21~08-28 UTC+9; Avalanche trial has ended). ' +
+        '"multichain" forces the paid 12-chain key. Same rule applies to q402_batch_pay.',
     ),
   walletMode: z
     .enum(["eoa", "agentic-local", "agentic-server"])
@@ -468,7 +468,7 @@ export async function runPay(input: PayInput): Promise<PaySummary> {
   // resolved to a live key (env missing, impossible chain×scope combo, …) the
   // resolver returns `apiKey: null` plus a `sandboxReason` hint that we
   // surface as the agent-visible setupHint. Unified rule with q402_batch_pay:
-  // BNB + Trial key set ⇒ Trial; else Multichain.
+  // BNB + Trial key set ⇒ Trial (Avalanche trial ended); else Multichain.
   const scopeRequest: KeyScopeRequest = input.keyScope ?? "auto";
   const resolved = resolveApiKey(input.chain, scopeRequest);
   guardsApplied.push(`scope=${resolved.scope}${resolved.fromLegacyFallback ? "(legacy)" : ""}`);
@@ -915,7 +915,7 @@ function describeSandboxReason(resolvedKey: string, scope: KeyScope): string {
   if (noEnable) missing.push("Q402_ENABLE_REAL_PAYMENTS=1");
   if (missing.length === 0) return "Sandbox mode active (no env state change needed).";
   // Route the user to the right tier: trial scope → /event (free 2k TX,
-  // BNB + Avalanche), multichain scope → /payment (paid plan, all 12 chains).
+  // BNB Chain; Avalanche trial ended), multichain scope → /payment (paid plan, all 12 chains).
   // Earlier copy always pointed at /dashboard which under-served Trial
   // users by sending them toward the paid funnel.
   const tier = scope === "trial" ? "Free Trial" : "Multichain";
@@ -947,8 +947,9 @@ export const PAY_TOOL = {
     "Auto-routing: trial-eligible chain + Q402_TRIAL_API_KEY set → Trial (free sponsored); " +
     "anything else → Multichain (paid 12-chain). Same rule for q402_batch_pay. " +
     "Set keyScope='trial' or 'multichain' to force one explicitly. " +
-    "Trial keys cover BNB Chain + Avalanche (USDC gasless on both; USDT gasless on BNB) permanently, " +
-    "plus Mantle (USDC/USDT gasless) as a limited-time chain during 2026-08-21~08-28 UTC+9 — " +
+    "Trial keys cover BNB Chain (USDC/USDT gasless) permanently. " +
+    "Avalanche trial has ended — use the Multichain key for avax. " +
+    "Mantle (USDC/USDT gasless) is a limited-time trial chain during 2026-08-21~08-28 UTC+9 — " +
     "outside that window Mantle returns TRIAL_BNB_ONLY; use the Multichain key there. " +
     "Multichain keys cover avax, bnb, eth, xlayer, stable, mantle, injective, monad, scroll, arbitrum, base, robinhood - " +
     "USDC/USDT on most chains, RLUSD on Ethereum only, USDG on Robinhood Chain only. " +
@@ -1044,7 +1045,7 @@ export const PAY_TOOL = {
         enum: ["auto", "trial", "multichain"],
         description:
           'Which API key to use. "auto" (default) picks Trial for trial-eligible chains ' +
-          '(BNB + Avalanche permanently; Mantle limited-time 2026-08-21~08-28 UTC+9) ' +
+          '(BNB Chain permanently; Mantle limited-time 2026-08-21~08-28 UTC+9; Avalanche trial ended) ' +
           'when Q402_TRIAL_API_KEY is set, Multichain otherwise. "trial" forces the ' +
           'Trial sponsored key. "multichain" forces the paid 12-chain key.',
       },

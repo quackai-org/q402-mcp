@@ -6,19 +6,19 @@
     "url": "https://github.com/quackai-org/q402-mcp",
     "source": "github"
   },
-  "version": "0.11.20",
+  "version": "0.11.21",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@quackai/q402-mcp",
-      "version": "0.11.20",
+      "version": "0.11.21",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
           "name": "Q402_TRIAL_API_KEY",
-          "description": "Recommended path: skip this UI and run `q402_doctor` after install - it stores secrets in ~/.q402/mcp.env, which the server auto-loads. Fill this field directly ONLY if your MCP client manages secrets for you. Value is a Free Trial API key from https://q402.quackai.ai/event - BNB Chain + Avalanche, 500 sponsored TXs, gas covered by Q402. BNB + Avalanche payments auto-route to this key when set (same rule for q402_pay and q402_batch_pay up to 5 recipients).",
+          "description": "Recommended path: skip this UI and run `q402_doctor` after install - it stores secrets in ~/.q402/mcp.env, which the server auto-loads. Fill this field directly ONLY if your MCP client manages secrets for you. Value is a Free Trial API key from https://q402.quackai.ai/event - BNB Chain (permanent) + Mantle limited-time (2026-08-21~08-28 UTC+9), 500 sponsored TXs, gas covered by Q402. Avalanche trial has ended. BNB payments auto-route to this key when set (same rule for q402_pay and q402_batch_pay up to 5 recipients).",
           "isRequired": false,
           "isSecret": true,
           "format": "string"
@@ -84,7 +84,7 @@
         },
         {
           "name": "Q402_API_KEY",
-          "description": "DEPRECATED legacy single-key env from pre-v0.5.0 installs. The server still reads it as a silent fallback so existing setups keep working, but new users should pick a scoped variant instead. Q402_TRIAL_API_KEY (Free Trial, BNB + Avalanche) and Q402_MULTICHAIN_API_KEY (full 12-chain surface) are designed to coexist - BNB + Avalanche payments auto-route to the trial key, other chains use multichain. Only set Q402_API_KEY if you are migrating an existing pre-v0.5.0 install; do NOT set it alongside the scoped variants on a fresh install.",
+          "description": "DEPRECATED legacy single-key env from pre-v0.5.0 installs. The server still reads it as a silent fallback so existing setups keep working, but new users should pick a scoped variant instead. Q402_TRIAL_API_KEY (Free Trial, BNB Chain) and Q402_MULTICHAIN_API_KEY (full 12-chain surface) are designed to coexist - BNB payments auto-route to the trial key, other chains use multichain. Only set Q402_API_KEY if you are migrating an existing pre-v0.5.0 install; do NOT set it alongside the scoped variants on a fresh install.",
           "isRequired": false,
           "isSecret": true,
           "format": "string"

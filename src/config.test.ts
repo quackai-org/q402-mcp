@@ -2,7 +2,8 @@
  * Tests for isTrialChain window-aware routing.
  *
  * AC-2  Mantle is a trial chain within the window and not outside it.
- * AC-4  BNB and Avalanche are always trial chains (unchanged behavior).
+ * AC-4  BNB is permanently a trial chain; Avalanche trial has ended.
+ * AC-7  avax uses an ended-window implementation (end date is in the past).
  */
 
 import { test, describe } from "node:test";
@@ -10,34 +11,45 @@ import assert from "node:assert/strict";
 
 import {
   isTrialChain,
+  AVAX_TRIAL_END_EXCLUSIVE_UTC,
   MANTLE_TRIAL_START_UTC,
   MANTLE_TRIAL_END_EXCLUSIVE_UTC,
 } from "./config.js";
 
-// ── AC-4: BNB + Avax are always trial chains ────────────────────────────────
+// ── AC-4 / AC-7: BNB is permanent; avax trial ended ─────────────────────────
 
-describe("AC-4: permanent trial chains", () => {
-  const beforeWindow = new Date("2026-08-01T00:00:00.000Z");
-  const duringWindow = new Date("2026-08-24T00:00:00.000Z");
-  const afterWindow  = new Date("2026-09-01T00:00:00.000Z");
+describe("AC-4: BNB permanent trial chain", () => {
+  const anyTime = new Date("2026-08-24T00:00:00.000Z");
+  const futureTime = new Date("2030-01-01T00:00:00.000Z");
 
-  test("bnb is trial before window", () => {
-    assert.equal(isTrialChain("bnb", beforeWindow), true);
+  test("bnb is trial at any time", () => {
+    assert.equal(isTrialChain("bnb", anyTime), true);
   });
-  test("bnb is trial during window", () => {
-    assert.equal(isTrialChain("bnb", duringWindow), true);
+  test("bnb is trial at future time", () => {
+    assert.equal(isTrialChain("bnb", futureTime), true);
   });
-  test("bnb is trial after window", () => {
-    assert.equal(isTrialChain("bnb", afterWindow), true);
+});
+
+describe("AC-7: avax trial ended (ended-window implementation)", () => {
+  // 1 ms before avax trial ended → still in trial
+  const justBeforeEnd = new Date(AVAX_TRIAL_END_EXCLUSIVE_UTC.getTime() - 1);
+  // exactly at avax trial end (exclusive) → no longer in trial
+  const atEnd = new Date(AVAX_TRIAL_END_EXCLUSIVE_UTC.getTime());
+  // current / future times → no longer in trial
+  const afterEnd = new Date("2026-09-01T00:00:00.000Z");
+
+  test("avax IS trial 1 ms before end (exclusive end)", () => {
+    assert.equal(isTrialChain("avax", justBeforeEnd), true);
   });
-  test("avax is trial before window", () => {
-    assert.equal(isTrialChain("avax", beforeWindow), true);
+  test("avax is NOT trial at end timestamp (exclusive)", () => {
+    assert.equal(isTrialChain("avax", atEnd), false);
   });
-  test("avax is trial during window", () => {
-    assert.equal(isTrialChain("avax", duringWindow), true);
+  test("avax is NOT trial after end", () => {
+    assert.equal(isTrialChain("avax", afterEnd), false);
   });
-  test("avax is trial after window", () => {
-    assert.equal(isTrialChain("avax", afterWindow), true);
+  test("avax is NOT trial at current time (trial has ended)", () => {
+    // 2026-08-14T15:00:00Z is in the past relative to 2026-08-18
+    assert.equal(isTrialChain("avax", new Date("2026-08-18T00:00:00.000Z")), false);
   });
 });
 
