@@ -62,9 +62,10 @@ export const PayInputSchema = z.object({
     .enum(["auto", "trial", "multichain"])
     .optional()
     .describe(
-      'Which API key to use. "auto" (default): chain ∈ {bnb, avax} + ' +
+      'Which API key to use. "auto" (default): trial-eligible chain + ' +
         'Q402_TRIAL_API_KEY set → Trial (free sponsored); else Multichain. ' +
-        '"trial" forces the BNB + Avalanche sponsored key. "multichain" forces ' +
+        '"trial" forces the Trial sponsored key (BNB + Avalanche permanently; ' +
+        'Mantle limited-time 2026-08-21~08-28 UTC+9). "multichain" forces ' +
         'the paid 12-chain key. Same rule applies to q402_batch_pay.',
     ),
   walletMode: z
@@ -943,11 +944,12 @@ export const PAY_TOOL = {
     "sandbox response with a clear \"how to set up\" message - surface that instead of " +
     "refusing. " +
     "\n\n" +
-    "Auto-routing: chain ∈ {bnb, avax} + Q402_TRIAL_API_KEY set → Trial (free sponsored); " +
+    "Auto-routing: trial-eligible chain + Q402_TRIAL_API_KEY set → Trial (free sponsored); " +
     "anything else → Multichain (paid 12-chain). Same rule for q402_batch_pay. " +
     "Set keyScope='trial' or 'multichain' to force one explicitly. " +
-    "Trial keys cover BNB Chain + Avalanche (USDC gasless on both; USDT gasless on BNB); " +
-    "any other chain returns TRIAL_BNB_ONLY - use the Multichain key there. " +
+    "Trial keys cover BNB Chain + Avalanche (USDC gasless on both; USDT gasless on BNB) permanently, " +
+    "plus Mantle (USDC/USDT gasless) as a limited-time chain during 2026-08-21~08-28 UTC+9 — " +
+    "outside that window Mantle returns TRIAL_BNB_ONLY; use the Multichain key there. " +
     "Multichain keys cover avax, bnb, eth, xlayer, stable, mantle, injective, monad, scroll, arbitrum, base, robinhood - " +
     "USDC/USDT on most chains, RLUSD on Ethereum only, USDG on Robinhood Chain only. " +
     "SANDBOX BY DEFAULT - no funds move unless the resolved key is a live key " +
@@ -1041,9 +1043,10 @@ export const PAY_TOOL = {
         type: "string",
         enum: ["auto", "trial", "multichain"],
         description:
-          'Which API key to use. "auto" (default) picks Trial for BNB + Avalanche ' +
+          'Which API key to use. "auto" (default) picks Trial for trial-eligible chains ' +
+          '(BNB + Avalanche permanently; Mantle limited-time 2026-08-21~08-28 UTC+9) ' +
           'when Q402_TRIAL_API_KEY is set, Multichain otherwise. "trial" forces the ' +
-          'BNB + Avalanche sponsored key. "multichain" forces the paid 12-chain key.',
+          'Trial sponsored key. "multichain" forces the paid 12-chain key.',
       },
       walletMode: {
         type: "string",

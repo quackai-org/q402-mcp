@@ -7,6 +7,7 @@ const fs = require("fs");
 const path = require("path");
 
 const testFiles = [
+  path.join(__dirname, "..", "dist-test", "config.test.js"),
   path.join(__dirname, "..", "dist-test", "travala", "travala.test.js"),
   path.join(__dirname, "..", "dist-test", "travala", "live-adapter.test.js"),
   path.join(__dirname, "..", "dist-test", "sandbox-receipt.test.js"),
