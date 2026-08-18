@@ -237,7 +237,7 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 | `q402_redstone_trigger_list` | live mode | List the Agent Wallet's RedStone triggers + their state. |
 | `q402_redstone_trigger_cancel` | live mode | Permanently stop a RedStone trigger. |
 | **x402 (outbound)** | | |
-| `q402_x402_fetch` | live mode | Fetch any x402-gated URL and handle HTTP 402 automatically: validates Base USDC payment option, guards against excess spend, signs EIP-3009 TransferWithAuthorization, and retries with the X-PAYMENT header. Non-402 responses pass through unchanged. |
+| `q402_x402_fetch` | live mode | Fetch any x402-gated URL and handle HTTP 402 automatically: validates Base USDC payment option, guards against excess spend, signs EIP-3009 TransferWithAuthorization, and retries with the correct payment header (PAYMENT-SIGNATURE for v2 servers, X-PAYMENT for v1 legacy). Non-402 responses pass through unchanged. |
 
 `q402_pay` + `q402_batch_pay` + `q402_bridge_send` + `q402_yield_deposit` + `q402_yield_withdraw` + `q402_stake` + `q402_unstake` + `q402_request_pay` require explicit in-chat confirmation. Batch confirmation = full batch, not per-row.
 
@@ -250,7 +250,7 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 
 `q402_x402_fetch` is a general-purpose x402 client. It fetches any URL and handles HTTP 402 payment-required responses automatically. When the server returns a non-402 status, the response passes through unchanged, so it also works as a regular fetch tool.
 
-**What it solves.** Some APIs and content endpoints use the x402 protocol to charge per-request. An agent hitting such a URL receives an HTTP 402 response with machine-readable payment requirements. `q402_x402_fetch` reads those requirements, validates the payment option, signs an EIP-3009 TransferWithAuthorization against Base USDC, encodes it into an `X-PAYMENT` header, and retries the request - all in one call.
+**What it solves.** Some APIs and content endpoints use the x402 protocol to charge per-request. An agent hitting such a URL receives an HTTP 402 response with machine-readable payment requirements. `q402_x402_fetch` reads those requirements, validates the payment option, signs an EIP-3009 TransferWithAuthorization against Base USDC, encodes it as a base64 JSON payload, and retries the request — using `PAYMENT-SIGNATURE` for x402 v2 servers and `X-PAYMENT` for legacy v1 servers — all in one call.
 
 **Supported.** `scheme=exact` + `network=base` (CAIP-2 `eip155:8453`; also accepted: `base-mainnet`) + Base USDC only. Any other scheme, network, or asset returns an explicit rejection and no signature is produced.
 
