@@ -6,8 +6,9 @@
 [![license](https://img.shields.io/npm/l/@quackai/q402-mcp.svg)](./LICENSE)
 
 > **Free trial available**. 500 gasless transactions on BNB Chain + Avalanche (USDC + USDT), 30-day window, no card. One wallet signature: <https://q402.quackai.ai>.
+> **Limited-time bonus:** Mantle (USDC + USDT) is also covered by trial keys during 2026-08-21~08-28 UTC+9.
 >
-> **Trial-scope policy:** API keys minted under the free-trial program (`plan: "trial"`) settle on BNB Chain + Avalanche (USDC gasless on both; USDT gasless on BNB) - server-side enforcement, returns `TRIAL_BNB_ONLY` for any other chain. **Paid API keys see the full 12-chain matrix at all times.**
+> **Trial-scope policy:** API keys minted under the free-trial program (`plan: "trial"`) settle on BNB Chain + Avalanche (USDC gasless on both; USDT gasless on BNB) as permanent chains, plus Mantle (USDC/USDT gasless) during the limited-time window 2026-08-21~08-28 UTC+9 — server-side time enforcement, returns `TRIAL_BNB_ONLY` outside the window. **Paid API keys see the full 12-chain matrix at all times.**
 
 Quote → route → (optional) settle stablecoin payments across 12 EVM chains, from any MCP client. Recipient gets the full amount; sender pays $0 gas via [Q402](https://q402.quackai.ai)'s EIP-7702 relayer.
 
@@ -338,7 +339,7 @@ Combined with the two-phase `consentToken` + live-mode env, a **stablecoin** pay
 
 | Env var | Required for | Notes |
 |---|---|---|
-| `Q402_TRIAL_API_KEY` | live-pay (BNB + Avax) | BNB + Avalanche sponsored Trial key. Free at https://q402.quackai.ai/event. Auto-routed for `chain="bnb"` / `chain="avax"` in both `q402_pay` and `q402_batch_pay` (≤5 recipients) when set. 6+ recipient trial batches return `status="ambiguous"` so the agent can ask the user how to split. |
+| `Q402_TRIAL_API_KEY` | live-pay (BNB + Avax + Mantle) | BNB + Avalanche sponsored Trial key (permanent). Also covers Mantle during the limited-time window 2026-08-21~08-28 UTC+9. Free at https://q402.quackai.ai/event. Auto-routed for trial-eligible chains in both `q402_pay` and `q402_batch_pay` (≤5 recipients) when set. 6+ recipient trial batches return `status="ambiguous"` so the agent can ask the user how to split. |
 | `Q402_MULTICHAIN_API_KEY` | live-pay (12-chain) | Paid 12-chain key. Get one at https://q402.quackai.ai/payment. Auto-routed for chains outside BNB + Avalanche AND for BNB/Avax when no Trial key is set. Cap: 20 recipients per batch. Mode C one-shot pays accept Trial or Multichain; Multichain required for recurring, Mode C batch, and bridge/OFT. |
 | `Q402_PRIVATE_KEY` | Mode A | Hex private key of your MetaMask EOA. Signer for local Mode A. **Never share. Never paste in chat.** |
 | `Q402_AGENTIC_PRIVATE_KEY` | Mode B | Exported Agent Wallet hex private key from the dashboard (Agent tab → Export). Signs locally, but the signer is your dedicated Agent Wallet - MetaMask is never touched. **Never share. Never paste in chat.** |

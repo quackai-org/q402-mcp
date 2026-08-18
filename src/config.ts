@@ -439,20 +439,38 @@ export function detectAgenticModes(c: Config = CONFIG): AgenticModes {
 export const CONFIG = loadConfig();
 
 /**
- * Chains the free Trial covers (gasless, Q402-sponsored): BNB Chain +
- * Avalanche. Every other chain needs the paid Multichain key. Mirrors the
- * q402-landing send-route free-tier exemption (BNB + Avax).
+ * Permanent trial chains (gasless, Q402-sponsored): BNB Chain + Avalanche.
+ * Mantle is a limited-time addition — use isTrialChain(chain) for all routing
+ * so the time gate is enforced consistently.
  */
 export const TRIAL_CHAINS = ["bnb", "avax"] as const;
-export function isTrialChain(chain: string): boolean {
-  return (TRIAL_CHAINS as readonly string[]).includes(chain);
+
+/**
+ * Mantle limited-time trial window. Mirrors Institutional backend
+ * feature-flags.ts:75-76 (MANTLE_TRIAL_START_UTC / MANTLE_TRIAL_END_EXCLUSIVE_UTC).
+ * Activity period: 2026-08-21 00:00 ~ 2026-08-28 23:59 (UTC+9).
+ */
+export const MANTLE_TRIAL_START_UTC = new Date("2026-08-20T15:00:00.000Z");
+export const MANTLE_TRIAL_END_EXCLUSIVE_UTC = new Date("2026-08-28T15:00:00.000Z");
+
+/**
+ * Returns true when chain is eligible for trial-key relay at atTime.
+ * Permanent: "bnb", "avax". Limited-time: "mantle" within the activity window.
+ * Mirrors Institutional trial-guards.ts isTrialChainAllowed.
+ */
+export function isTrialChain(chain: string, atTime: Date = new Date()): boolean {
+  if (chain === "bnb" || chain === "avax") return true;
+  if (chain === "mantle") {
+    return atTime >= MANTLE_TRIAL_START_UTC && atTime < MANTLE_TRIAL_END_EXCLUSIVE_UTC;
+  }
+  return false;
 }
 
 /**
  * Resolve the API key to use for a (chain, scope) request.
  *
  * Auto routing rule (when scope === "auto"):
- *   - chain ∈ {bnb, avax} AND Q402_TRIAL_API_KEY set → trial
+ *   - isTrialChain(chain) AND Q402_TRIAL_API_KEY set → trial
  *   - otherwise                                       → multichain
  *   - if the chosen scope has no key, fall back to legacyApiKey
  *
@@ -474,9 +492,9 @@ export function isTrialChain(chain: string): boolean {
  * the load-bearing user-safety guards.
  *
  * The one trial-specific guard kept here is the chain check: `keyScope: "trial"`
- * with a chain outside {bnb, avax} is an impossible combination - even with a
- * valid Trial key the server would 402 with TRIAL_BNB_ONLY. We surface that
- * intent error via `sandboxReason` (still no throw) so the agent sees a hint.
+ * with a chain outside the permitted trial set is an impossible combination —
+ * even with a valid Trial key the server would return TRIAL_BNB_ONLY. We surface
+ * that intent error via `sandboxReason` (still no throw) so the agent sees a hint.
  */
 export interface ResolvedKey {
   /** Null when no live key is available; caller falls back to sandbox. */
@@ -495,9 +513,9 @@ export function resolveApiKey(
 ): ResolvedKey {
   const effectiveScope: KeyScope =
     scope === "auto"
-      ? // Unified rule for single + batch: the free-tier chains (BNB +
-        // Avalanche) prefer Trial when set, everything else uses Multichain.
-        // Batch cap ambiguity is handled in batch-pay.ts BEFORE this resolver.
+      ? // Unified rule for single + batch: trial-eligible chains (BNB, Avalanche,
+        // and Mantle within its limited-time window) prefer Trial when set;
+        // everything else uses Multichain. Batch cap ambiguity handled in batch-pay.ts.
         isTrialChain(chain) && CONFIG.trialApiKey
         ? "trial"
         : "multichain"
@@ -511,9 +529,10 @@ export function resolveApiKey(
         scope: "trial",
         fromLegacyFallback: false,
         sandboxReason:
-          `keyScope="trial" requested but chain="${chain}" - Trial keys support ` +
-          `BNB Chain + Avalanche only. Drop keyScope (or set keyScope="multichain") ` +
-          `to use the paid Multichain key on ${chain}.`,
+          `keyScope="trial" requested but chain="${chain}" is not a trial-eligible chain ` +
+          `at this time. Trial keys support BNB Chain + Avalanche (permanent) and ` +
+          `Mantle (limited-time: 2026-08-21~08-28 UTC+9). ` +
+          `Drop keyScope (or set keyScope="multichain") to use the paid Multichain key on ${chain}.`,
       };
     }
     const key = CONFIG.trialApiKey ?? CONFIG.legacyApiKey;

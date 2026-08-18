@@ -103,13 +103,14 @@ export const BatchPayInputSchema = z.object({
     .enum(["auto", "trial", "multichain"])
     .optional()
     .describe(
-      'Which API key to use. "auto" (default): chain ∈ {bnb, avax} + ' +
+      'Which API key to use. "auto" (default): trial-eligible chain + ' +
         'Q402_TRIAL_API_KEY set → Trial; else Multichain - same rule as ' +
         'q402_pay. When auto would land on Trial AND recipients.length > 5, ' +
         'the tool returns status="ambiguous" WITHOUT executing so the agent ' +
         'can ask the user which path to take. Use keyScope="trial" to force ' +
-        'the BNB + Avalanche sponsored key (≤5 recipients). keyScope="multichain" ' +
-        'forces the paid 12-chain key (≤20 recipients).',
+        'the Trial sponsored key (BNB + Avalanche permanently; Mantle ' +
+        'limited-time 2026-08-21~08-28 UTC+9; ≤5 recipients). ' +
+        'keyScope="multichain" forces the paid 12-chain key (≤20 recipients).',
     ),
   walletMode: z
     .enum(["eoa", "agentic-local", "agentic-server"])
@@ -477,7 +478,7 @@ export async function runBatchPay(input: BatchPayInput): Promise<BatchPaySummary
       guardsApplied,
       senderWallet,
       setupHint:
-        `keyScope="trial" caps at ${RECIPIENT_LIMIT_TRIAL} recipients per call (BNB + Avalanche sponsored). ` +
+        `keyScope="trial" caps at ${RECIPIENT_LIMIT_TRIAL} recipients per call (BNB + Avalanche sponsored permanently; Mantle limited-time 2026-08-21~08-28 UTC+9). ` +
         `Your batch has ${input.recipients.length}. Either trim to the first ${RECIPIENT_LIMIT_TRIAL} ` +
         `recipients and re-invoke with keyScope="trial", or send the full batch on the paid ` +
         `Multichain key by re-invoking with keyScope="multichain" (charges the paid pool + Gas Tank, ` +
@@ -852,7 +853,7 @@ function describeSandboxReason(resolvedKey: string, scope: KeyScope): string {
   }
   if (noEnable) missing.push("Q402_ENABLE_REAL_PAYMENTS=1");
   if (missing.length === 0) return "Sandbox mode active (no env state change needed).";
-  // Route to the right tier: trial scope → /event (free 2k TX, BNB + Avalanche),
+  // Route to the right tier: trial scope → /event (free 500 TX, BNB + Avalanche + Mantle limited-time),
   // multichain scope → /payment (paid plan, all 12 chains).
   const tier = scope === "trial" ? "Free Trial" : "Multichain";
   const url  =
@@ -878,9 +879,10 @@ export const BATCH_PAY_TOOL = {
     "manually - Q402 was installed for exactly this. " +
     "\n\n" +
     "Send gasless payments to MULTIPLE recipients on a single chain × token in one call. " +
-    "Auto-routing follows the same rule as q402_pay: chain ∈ {bnb, avax} + Q402_TRIAL_API_KEY set " +
+    "Auto-routing follows the same rule as q402_pay: trial-eligible chain + Q402_TRIAL_API_KEY set " +
     "→ Trial; else Multichain. " +
-    `Trial keys: max ${RECIPIENT_LIMIT_TRIAL} recipients per call, BNB Chain (USDC/USDT) + Avalanche (USDC only). ` +
+    `Trial keys: max ${RECIPIENT_LIMIT_TRIAL} recipients per call, BNB Chain (USDC/USDT) + Avalanche (USDC only) permanently; ` +
+    "Mantle (USDC/USDT) as a limited-time addition during 2026-08-21~08-28 UTC+9 — outside that window Mantle routes to Multichain. " +
     `Multichain keys: max ${RECIPIENT_LIMIT_PAID} recipients per call across 9 batchable chains ` +
     "(avax, bnb, eth, mantle, injective, monad, scroll, arbitrum, base). xlayer + stable are NOT batchable - use q402_pay in a loop. " +
     "AMBIGUITY GATE: when auto would land on Trial AND recipients.length > 5, the tool returns " +
