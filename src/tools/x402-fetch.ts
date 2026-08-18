@@ -7,7 +7,7 @@
  *   3. 402 response → parse x402 v2 `accepts[]`, validate scheme/network/asset.
  *   4. Run guards: per-call maxAmountGuard, per-session cumulative cap, consentToken.
  *   5. Sign EIP-3009 TransferWithAuthorization against Base USDC domain.
- *   6. Encode payment payload into X-PAYMENT header (base64 JSON), retry once.
+ *   6. Encode payment payload and retry: v2 challenge → PAYMENT-SIGNATURE header; v1 → X-PAYMENT.
  *   7. Return 200 response body.
  *
  * Every 402 attempt (blocked or settled) is written to the local x402 audit
@@ -686,7 +686,7 @@ export const X402_FETCH_TOOL = {
     "Generic x402 client. Fetches any URL with GET/POST and handles x402 payment-required " +
     "(HTTP 402) responses automatically: parses the x402 v2 payment requirements, validates " +
     "the payment option (Base USDC only), guards against excess spend, signs an EIP-3009 " +
-    "TransferWithAuthorization, and retries with the X-PAYMENT header. Non-402 responses " +
+    "TransferWithAuthorization, and retries with PAYMENT-SIGNATURE (v2 servers) or X-PAYMENT (v1 legacy). Non-402 responses " +
     "are passed through directly, so this also serves as a regular fetch tool. " +
     "\n\n" +
     "SUPPORTED: scheme=exact + network=base (i.e. CAIP-2 eip155:8453; also accepted: " +
