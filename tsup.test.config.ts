@@ -2,6 +2,7 @@ import { defineConfig } from "tsup";
 
 export default defineConfig({
   entry: [
+    "src/config.test.ts",
     "src/travala/travala.test.ts",
     "src/travala/live-adapter.test.ts",
     "src/sandbox-receipt.test.ts",
