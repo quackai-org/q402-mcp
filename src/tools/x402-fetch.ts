@@ -161,7 +161,7 @@ const X402ResponseSchema = z.object({
   extensions: z.record(z.unknown()).optional(),
   accepts: z.array(X402RequirementSchema).min(1),
 }).passthrough();
-type X402Requirement = z.infer<typeof X402RequirementSchema>;
+export type X402Requirement = z.infer<typeof X402RequirementSchema>;
 
 // ── Result shape ───────────────────────────────────────────────────────────────
 
@@ -348,7 +348,7 @@ function isRealPaymentsEnabled(): boolean {
   return dynEnv("Q402_ENABLE_REAL_PAYMENTS") === "1";
 }
 
-function selectRequirement(accepts: X402Requirement[]): X402Requirement | null {
+export function selectRequirement(accepts: X402Requirement[]): X402Requirement | null {
   return accepts.find(a =>
     a.scheme === "exact" &&
     (a.network === "base" || a.network === "base-mainnet" || a.network === "eip155:8453") &&
