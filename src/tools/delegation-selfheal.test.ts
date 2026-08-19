@@ -100,8 +100,14 @@ describe("AC-1: q402_pay x402-path recommendedAction includes all three componen
       const token = first.needsConsent!.consentToken;
 
       // Second call: with consent token → relay fetch fires.
-      // Mock the relay to return X402_WALLET_DELEGATED.
+      // Two fetch calls are now expected: (1) the automatic pre-check
+      // trust/check that runs before every live outgoing payment, and
+      // (2) the agentic-server /wallet/agentic/send that returns
+      // X402_WALLET_DELEGATED. Stub both in order.
       const restore = stubFetch([
+        // (1) pre-check trust/check — return a benign low-risk verdict (new server shape)
+        () => Promise.resolve(makeResponse(200, JSON.stringify({ riskFlags: [] }))),
+        // (2) main payment — return X402_WALLET_DELEGATED so the test can assert recommendedAction
         () => Promise.resolve(makeResponse(200, JSON.stringify({ error: "X402_WALLET_DELEGATED" }))),
       ]);
       try {

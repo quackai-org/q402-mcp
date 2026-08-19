@@ -132,6 +132,12 @@ Q402_RELAY_BASE_URL=https://q402.quackai.ai/api
 # Safety guards (max-amount ships uncommented at $200; lower for tighter caps):
 Q402_MAX_AMOUNT_PER_CALL=200
 # Q402_ALLOWED_RECIPIENTS=0xabc...,0xdef...
+
+# Pre-check (automatic trust-check before outgoing payments in live mode).
+# Triggers when paying a first-time counterparty OR amount >= $1.
+# Fee: $0.02 per check; verdict cached 7 days (no repeat charge within TTL).
+# Set to 1 to disable pre-check entirely (even first-time / large-amount pays).
+# Q402_DISABLE_PRECHECK=0
 ```
 
 Then `chmod 600 ~/.q402/mcp.env` (Unix) and restart your client. That's the full configuration. **Heads up on the EIP-7702 side effect:** after your first live payment on a chain, your wallet will show 'Smart account' in MetaMask / OKX - that's the delegation Q402 uses for gasless settlement, reversible anytime via `q402_clear_delegation`.
@@ -185,7 +191,7 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 | `q402_doctor` | none | First-install onboarding + ongoing health check (per-scope quota, EIP-7702 state, relay reachability, slot-mismatch warnings). |
 | `q402_quote` | none | Compare gas + supported tokens across chains. |
 | `q402_balance` | api key | Verify key + remaining quota. |
-| `q402_pay` | live mode | Single-recipient gasless transfer. Sandbox by default. |
+| `q402_pay` | live mode | Single-recipient gasless transfer. Sandbox by default. In live mode, automatically runs a trust-check ($0.02) on the recipient before each payment when it is a first-time counterparty or the amount ≥ $1; verdict cached 7 days (no double-charge within TTL). Degrades to free basic verdict only when wallet balance exactly covers the transfer but not the $0.02 fee, or when only a non-USDC rail token is available. Pre-check never blocks the main transaction. Disable with `Q402_DISABLE_PRECHECK=1`. |
 | `q402_batch_pay` | live mode | Up to 20 recipients per call. Trial: 5 - applies when paying with your own key (Mode A/B); server-managed Agent Wallet (Mode C) batch is paid Multichain-only. Same auto-routing as `q402_pay`. 6+ BNB batches with Trial set return `status="ambiguous"` so the agent asks how to split. xlayer + stable not batchable - use `q402_pay` in a loop. |
 | `q402_receipt` | none | Fetch + locally verify a Trust Receipt (`rct_…` id, ECDSA against the relayer EOA). |
 | `q402_wallet_status` | private key | Per-chain EIP-7702 state for the EOA derived from `Q402_PRIVATE_KEY`. |
@@ -316,6 +322,10 @@ Q402_AGENTIC_PRIVATE_KEY=          # Mode B: exported Agent Wallet pk (from dash
 # at least one valid signing path (A/B/C) are populated. Empty values
 # fail the gate, so partial setups stay in sandbox with a hint.
 Q402_ENABLE_REAL_PAYMENTS=1
+
+# Pre-check trust-check (live mode). Triggers for first-time counterparties or
+# payments >= $1. Fee: $0.02 per check; cached 7 days. Never blocks the main tx.
+# Set Q402_DISABLE_PRECHECK=1 to opt out.
 ```
 
 Anything missing for the resolved scope → automatic sandbox fallback with a hint pointing at what to set.
@@ -330,6 +340,7 @@ Anything missing for the resolved scope → automatic sandbox fallback with a hi
 | `Q402_X402_SESSION_CAP_USD` | `5` | Per-session cumulative spend cap for `q402_x402_fetch` (USD). Blocked if the session total would exceed this value. Resets on MCP server restart. |
 | `Q402_ALLOWED_RECIPIENTS` | off | Comma-separated address allowlist. |
 | `Q402_BUILDER_CODE` | off | Base Builder Code for `q402_x402_fetch` on-chain attribution (ERC-8021 via x402 v2 `extensions.builder-code`). |
+| `Q402_DISABLE_PRECHECK` | off | Set to `1` to opt out of the automatic pre-check trust-check on outgoing payments. |
 
 Combined with the two-phase `consentToken` + live-mode env, a **stablecoin** payment needs: a preview the user approved + amount ≤ cap + recipient allowed + all 3 live envs. **Q (QuackAI) is exempt from the cap** (your own token); the preview, recipient allowlist, and live-mode env still apply to it.
 
@@ -349,6 +360,7 @@ Combined with the two-phase `consentToken` + live-mode env, a **stablecoin** pay
 | `Q402_X402_SESSION_CAP_USD` | optional | Per-session cumulative spend cap for `q402_x402_fetch` (USD). Defaults to `5`. Resets on MCP server restart. |
 | `Q402_ALLOWED_RECIPIENTS` | optional | Comma-separated lowercase addresses. Defaults to no allowlist. |
 | `Q402_BUILDER_CODE` | optional | Base Builder Code (1–32 lowercase letters/numbers/underscores, e.g. `bc_fu2v7kgf`). Set to your registered Builder Code to attach on-chain ERC-8021 attribution to every `q402_x402_fetch` payment via the x402 `extensions.builder-code` field. |
+| `Q402_DISABLE_PRECHECK` | optional | Set to `1` to disable the automatic pre-check trust-check that runs before outgoing payments in live mode. When unset (default), pre-check runs automatically for first-time counterparties and payments ≥ $1. The pre-check fee is $0.02; verdicts are cached 7 days (no repeat charge within TTL). The pre-check never blocks the main transaction. |
 | `Q402_RELAY_BASE_URL` | optional | Defaults to `https://q402.quackai.ai/api`. Override for self-hosted Q402. |
 
 <details>

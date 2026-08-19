@@ -29,6 +29,7 @@ import {
 } from "../config.js";
 import { Q402NodeClient, sandboxPay, type PayResult } from "../client.js";
 import { checkConsent, maxAmountGuard, recipientGuard } from "../guards.js";
+import { runPrecheck, makeX402TrustCheckFn, shouldRunPrecheck, type PrecheckResult } from "./precheck.js";
 
 /** Which wallet the agent should spend from. */
 export type WalletModeRequest = "eoa" | "agentic-local" | "agentic-server";
@@ -210,6 +211,8 @@ export interface PaySummary {
     /** Ordered remediation steps. Step (b) is always q402_wallet_status confirm; step (c) is the fix tool. */
     steps: Array<{ step: number; tool: string; purpose: string }>;
   };
+  /** Pre-check result, present when a trust-check was attempted before the payment. */
+  precheck?: PrecheckResult;
 }
 
 // Audit sink for q402_pay guard rejections: writes to stderr (pay has no JSON audit store).
@@ -541,6 +544,20 @@ export async function runPay(input: PayInput): Promise<PaySummary> {
         ? input.walletId.toLowerCase()
         : CONFIG.walletId;
 
+    // Pre-check: run trust-check on counterparty before any outgoing payment.
+    // Never blocks or fails the main transaction; errors are silently skipped.
+    const precheckModeC = await runPrecheck(
+      {
+        mode: "live",
+        counterpartyAddress: input.to,
+        amountUsd: Number(input.amount),
+        payToken: input.token,
+        // hasUsdc intentionally omitted — defaults to true (conservative) in
+        // runPrecheck; callers without a balance lookup must not set it false.
+      },
+      makeX402TrustCheckFn({ relayBaseUrl: CONFIG.relayBaseUrl }),
+    );
+
     let resp: Response;
     try {
       // 60s timeout - the route is fully synchronous (signs + relays +
@@ -779,6 +796,7 @@ export async function runPay(input: PayInput): Promise<PaySummary> {
         ...(x402Blocked ? ["x402_blocked=wallet_delegated"] : []),
       ],
       senderWallet,
+      precheck: precheckModeC,
       ...(x402Blocked
         ? {
             recommendedAction: {
@@ -846,6 +864,20 @@ export async function runPay(input: PayInput): Promise<PaySummary> {
           : "Set Q402_PRIVATE_KEY to your EOA private key.",
     };
   }
+  // Pre-check: run trust-check on counterparty before outgoing payment.
+  // Never blocks or fails the main transaction; errors are silently skipped.
+  const precheckModeAB = await runPrecheck(
+    {
+      mode: "live",
+      counterpartyAddress: input.to,
+      amountUsd: Number(input.amount),
+      payToken: input.token,
+      // hasUsdc intentionally omitted — defaults to true (conservative) in
+      // runPrecheck; callers without a balance lookup must not set it false.
+    },
+    makeX402TrustCheckFn({ relayBaseUrl: CONFIG.relayBaseUrl }),
+  );
+
   const client = new Q402NodeClient({
     apiKey: resolved.apiKey!,
     privateKey: signingPk,
@@ -868,6 +900,7 @@ export async function runPay(input: PayInput): Promise<PaySummary> {
     result: { ...result, method: "q402" },
     guardsApplied,
     senderWallet,
+    precheck: precheckModeAB,
     postPaymentTip: result.success
       ? "After this payment your EOA is EIP-7702-delegated to Q402's impl on " +
         `${chain.name} - MetaMask / OKX will show it as a 'Smart account'. ` +
@@ -1006,7 +1039,29 @@ export const PAY_TOOL = {
     "Relay that preview to the user, get their explicit yes, then re-call with " +
     "the SAME args plus that `consentToken` to execute. The token is re-derived " +
     "from the params about to run, so a previewed payment can't be swapped for " +
-    "a different one.",
+    "a different one. " +
+    "\n\n" +
+    "PRE-CHECK (automatic trust-check before payment, live mode only): " +
+    "In live mode, q402_pay automatically runs a trust-check on the recipient " +
+    "address before every outgoing payment when: (a) this is the first time paying " +
+    "that counterparty, OR (b) the payment amount is $1.00 or more. " +
+    "The pre-check fee is $0.02 per check. Verdicts are cached for 7 days — " +
+    "repeat payments to the same address within the TTL reuse the cached result " +
+    "at no additional charge. " +
+    "Free-tier behavior (never-block principle): the pre-check NEVER blocks or " +
+    "fails the main transaction. It degrades to a free basic verdict (no $0.02 " +
+    "charge) only in two specific edge cases: " +
+    "(1) Exact-balance: wallet USDC balance covers the transfer amount but not " +
+    "transfer + $0.02 fee. " +
+    "(2) Non-USDC rail only: wallet holds a rail-supported non-USDC token (e.g. " +
+    "USDT) but has no USDC to pay the fee. " +
+    "In both cases the pre-check response includes `verdict.isFree=true`, " +
+    "`verdict.degradationReason`, and `verdict.upgradeHint` (surface the hint to " +
+    "the user). Trial users with USDC pay the $0.02 fee normally — there is no " +
+    "blanket free-check for trial plans. " +
+    "Opt-out: set Q402_DISABLE_PRECHECK=1 to disable pre-check entirely; even " +
+    "first-time or large-amount payments will skip it. " +
+    "The pre-check result is returned in the `precheck` field of the response.",
   inputSchema: {
     type: "object" as const,
     properties: {
