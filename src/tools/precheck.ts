@@ -33,6 +33,8 @@ import {
   buildXPaymentHeader,
   getBuilderCode,
   pickSigningKey,
+  selectRequirement,
+  type X402Requirement,
 } from "./x402-fetch.js";
 
 /** Environment variable to disable pre-check globally (opt-out). */
@@ -354,35 +356,37 @@ export async function runPrecheck(
   }
 }
 
-// ── x402 trust-check Base USDC constants ──────────────────────────────────────
+// ── Risk flag helpers ──────────────────────────────────────────────────────────
+
+interface ServerRiskFlag {
+  flag: string;
+  severity: string;
+  evidence: string;
+}
+
+/**
+ * Derive a scalar risk level from the server's riskFlags array.
+ * No composite scoring — severity presence only.
+ */
+function riskFromFlags(flags: ServerRiskFlag[]): PrecheckVerdict["risk"] {
+  if (flags.some(f => f.severity === "high")) return "high";
+  if (flags.some(f => f.severity === "medium")) return "medium";
+  if (flags.length > 0) return "low";
+  return "low";
+}
+
+// ── x402 trust-check constants ────────────────────────────────────────────────
 
 const BASE_USDC_ADDRESS_LC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-
-interface TrustCheckX402Req {
-  scheme: string;
-  network: string;
-  asset: string;
-  amount: string;
-  payTo: string;
-  maxTimeoutSeconds?: number;
-}
-
-function selectTrustCheckReq(accepts: TrustCheckX402Req[]): TrustCheckX402Req | null {
-  return accepts.find(a =>
-    a.scheme === "exact" &&
-    (a.network === "base" || a.network === "base-mainnet" || a.network === "eip155:8453") &&
-    a.asset.toLowerCase() === BASE_USDC_ADDRESS_LC,
-  ) ?? null;
-}
 
 /**
  * Build the production TrustCheckFn using the x402 payment protocol.
  *
  * Flow:
  *   1. GET {relayBaseUrl}/api/x402/agent-trust/{address}
- *   2. 200 → return verdict immediately (settled=false, no charge)
- *   3. 402 → parse x402 body, sign EIP-3009 for Base USDC, retry with X-PAYMENT
- *   4. 200 retry → return verdict (settled=true, charge occurred)
+ *   2. 200 → verdict already available (cached server-side); settled=false, no charge
+ *   3. 402 → parse x402 v2 challenge, sign EIP-3009, retry under the correct header name
+ *   4. 200 retry → verdict with settled=true (on-chain settlement occurred)
  *
  * Never blocks the main transaction — errors propagate to runPrecheck's catch.
  */
@@ -392,17 +396,16 @@ export function makeX402TrustCheckFn(opts: {
   return async (address: string) => {
     const url = `${opts.relayBaseUrl}/api/x402/agent-trust/${address}`;
 
-    // Step 1: initial GET
+    // Step 1: initial GET (no payment header)
     const resp1 = await fetch(url, {
       signal: AbortSignal.timeout(15_000),
     });
 
     if (resp1.status === 200) {
-      // Server returned a verdict without requiring payment (cached or free tier).
-      const data = (await resp1.json()) as { risk?: string; flags?: string[] };
-      const risk = (["low", "medium", "high"].includes(data.risk ?? "") ? data.risk : "unknown") as
-        PrecheckVerdict["risk"];
-      return { risk, flags: Array.isArray(data.flags) ? data.flags : [], settled: false };
+      // Server returned verdict without charging (cached server-side or free tier).
+      const data = (await resp1.json()) as { riskFlags?: ServerRiskFlag[] };
+      const flags = Array.isArray(data.riskFlags) ? data.riskFlags : [];
+      return { risk: riskFromFlags(flags), flags: flags.map(f => f.flag), settled: false };
     }
 
     if (resp1.status !== 402) {
@@ -410,12 +413,31 @@ export function makeX402TrustCheckFn(opts: {
       throw new Error(`trust-check HTTP ${resp1.status}: ${body.slice(0, 200)}`);
     }
 
-    // Step 2: parse x402 body
-    const raw402 = (await resp1.json()) as { accepts?: unknown[] };
-    const req = selectTrustCheckReq((raw402.accepts ?? []) as TrustCheckX402Req[]);
-    if (!req) {
+    // Step 2: parse x402 v2 challenge
+    const raw402 = (await resp1.json()) as {
+      x402Version?: number;
+      version?: number;
+      resource?: Record<string, unknown>;
+      extensions?: Record<string, unknown>;
+      accepts?: unknown[];
+    };
+    const accepts = (raw402.accepts ?? []) as X402Requirement[];
+    const selected = selectRequirement(accepts);
+    if (!selected) {
       throw new Error("trust-check: 402 response has no supported Base USDC payment option");
     }
+    // Normalize v1's maxAmountRequired onto `amount`
+    const rawAmount: string | undefined =
+      selected.amount ?? (selected as Record<string, string | undefined>)["maxAmountRequired"];
+    if (!rawAmount) {
+      throw new Error("trust-check: 402 requirement missing amount");
+    }
+    if (!selected.payTo || selected.asset.toLowerCase() !== BASE_USDC_ADDRESS_LC) {
+      throw new Error("trust-check: selected requirement is not a Base USDC payment");
+    }
+    const req: X402Requirement = { ...selected, amount: rawAmount };
+
+    const challengeVersion = raw402.x402Version ?? raw402.version ?? 1;
 
     // Step 3: get signing key
     const signingKey = pickSigningKey();
@@ -430,25 +452,28 @@ export function makeX402TrustCheckFn(opts: {
     const signed = await signEip3009(
       signingKey,
       req.payTo,
-      req.amount,
+      rawAmount,
       req.maxTimeoutSeconds ?? 300,
     );
 
-    // Step 5: build X-PAYMENT header with builder-code attribution
+    // Step 5: build payment header with correct v2 shape and header name
     const xPayment = buildXPaymentHeader({
-      from:         signed.from,
-      payTo:        req.payTo,
-      amountAtomic: req.amount,
-      validBefore:  signed.validBefore,
-      nonce:        signed.nonce,
-      signature:    signed.signature,
-      network:      req.network,
-      builderCode:  getBuilderCode(),
+      from:                signed.from,
+      payTo:               req.payTo,
+      amountAtomic:        rawAmount,
+      validBefore:         signed.validBefore,
+      nonce:               signed.nonce,
+      signature:           signed.signature,
+      requirement:         req,
+      resource:            raw402.resource,
+      challengeExtensions: raw402.extensions,
+      challengeVersion,
+      builderCode:         getBuilderCode(),
     });
 
-    // Step 6: retry GET with X-PAYMENT header
+    // Step 6: retry GET under the version-correct header name
     const resp2 = await fetch(url, {
-      headers: { "X-PAYMENT": xPayment },
+      headers: { [xPayment.headerName]: xPayment.value },
       signal: AbortSignal.timeout(15_000),
     });
 
@@ -457,9 +482,8 @@ export function makeX402TrustCheckFn(opts: {
       throw new Error(`trust-check x402 retry HTTP ${resp2.status}: ${body.slice(0, 200)}`);
     }
 
-    const data2 = (await resp2.json()) as { risk?: string; flags?: string[] };
-    const risk = (["low", "medium", "high"].includes(data2.risk ?? "") ? data2.risk : "unknown") as
-      PrecheckVerdict["risk"];
-    return { risk, flags: Array.isArray(data2.flags) ? data2.flags : [], settled: true };
+    const data2 = (await resp2.json()) as { riskFlags?: ServerRiskFlag[] };
+    const flags2 = Array.isArray(data2.riskFlags) ? data2.riskFlags : [];
+    return { risk: riskFromFlags(flags2), flags: flags2.map(f => f.flag), settled: true };
   };
 }

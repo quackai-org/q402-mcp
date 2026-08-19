@@ -105,8 +105,8 @@ describe("AC-1: q402_pay x402-path recommendedAction includes all three componen
       // (2) the agentic-server /wallet/agentic/send that returns
       // X402_WALLET_DELEGATED. Stub both in order.
       const restore = stubFetch([
-        // (1) pre-check trust/check — return a benign low-risk verdict
-        () => Promise.resolve(makeResponse(200, JSON.stringify({ risk: "low", flags: [] }))),
+        // (1) pre-check trust/check — return a benign low-risk verdict (new server shape)
+        () => Promise.resolve(makeResponse(200, JSON.stringify({ riskFlags: [] }))),
         // (2) main payment — return X402_WALLET_DELEGATED so the test can assert recommendedAction
         () => Promise.resolve(makeResponse(200, JSON.stringify({ error: "X402_WALLET_DELEGATED" }))),
       ]);
