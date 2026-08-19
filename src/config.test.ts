@@ -3,6 +3,7 @@
  *
  * AC-2  Mantle is a trial chain within the window and not outside it.
  * AC-4  BNB is permanently a trial chain; Avalanche trial has ended.
+ * AC-5  Base is a permanent trial chain (joined in 0.11.23).
  * AC-7  avax uses an ended-window implementation (end date is in the past).
  */
 
@@ -27,6 +28,20 @@ describe("AC-4: BNB permanent trial chain", () => {
   });
   test("bnb is trial at future time", () => {
     assert.equal(isTrialChain("bnb", futureTime), true);
+  });
+});
+
+// ── AC-5: Base is a permanent trial chain ────────────────────────────────────
+
+describe("AC-5: Base permanent trial chain", () => {
+  const anyTime = new Date("2026-08-24T00:00:00.000Z");
+  const futureTime = new Date("2030-01-01T00:00:00.000Z");
+
+  test("base is trial at any time", () => {
+    assert.equal(isTrialChain("base", anyTime), true);
+  });
+  test("base is trial at future time", () => {
+    assert.equal(isTrialChain("base", futureTime), true);
   });
 });
 

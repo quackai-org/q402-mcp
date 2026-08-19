@@ -2,7 +2,7 @@
  * Runtime configuration parsed from environment variables.
  *
  * Two-key model:
- *   Q402_TRIAL_API_KEY       BNB Chain sponsored Trial key (free 500 TX; Avalanche trial ended).
+ *   Q402_TRIAL_API_KEY       BNB Chain + Base sponsored Trial key (free 500 TX; Avalanche trial ended).
  *   Q402_MULTICHAIN_API_KEY  Paid 12-chain key backed by per-chain Gas Tank.
  *   Q402_API_KEY             Legacy single-key fallback. Used for both
  *                            scopes when the two scoped envs are unset.
@@ -210,7 +210,7 @@ export type KeyScope = "trial" | "multichain";
 export type KeyScopeRequest = "auto" | KeyScope;
 
 export interface Config {
-  /** Trial-scope key (BNB Chain; Avalanche trial ended). Null if Q402_TRIAL_API_KEY unset. */
+  /** Trial-scope key (BNB Chain + Base, permanent; Avalanche trial ended). Null if Q402_TRIAL_API_KEY unset. */
   trialApiKey: string | null;
   /** Multichain-scope key (12 chains). Null if Q402_MULTICHAIN_API_KEY unset. */
   multichainApiKey: string | null;
@@ -439,12 +439,12 @@ export function detectAgenticModes(c: Config = CONFIG): AgenticModes {
 export const CONFIG = loadConfig();
 
 /**
- * Permanent trial chain (gasless, Q402-sponsored): BNB Chain only.
+ * Permanent trial chains (gasless, Q402-sponsored): BNB Chain + Base.
  * Avalanche trial ended (see AVAX_TRIAL_END_EXCLUSIVE_UTC); Mantle is a
  * limited-time addition. Use isTrialChain(chain) for all routing so time
  * gates are enforced consistently.
  */
-export const TRIAL_CHAINS = ["bnb"] as const;
+export const TRIAL_CHAINS = ["bnb", "base"] as const;
 
 /**
  * Avalanche trial ended window. The trial ran on Avalanche but has since
@@ -464,12 +464,13 @@ export const MANTLE_TRIAL_END_EXCLUSIVE_UTC = new Date("2026-08-28T15:00:00.000Z
 
 /**
  * Returns true when chain is eligible for trial-key relay at atTime.
- * Permanent: "bnb". Ended: "avax" (trial concluded 2026-08-15 UTC+9).
+ * Permanent: "bnb", "base". Ended: "avax" (trial concluded 2026-08-15 UTC+9).
  * Limited-time: "mantle" within the activity window.
  * Mirrors Institutional trial-guards.ts isTrialChainAllowed.
  */
 export function isTrialChain(chain: string, atTime: Date = new Date()): boolean {
   if (chain === "bnb") return true;
+  if (chain === "base") return true;
   if (chain === "avax") {
     return atTime < AVAX_TRIAL_END_EXCLUSIVE_UTC;
   }
@@ -543,7 +544,7 @@ export function resolveApiKey(
         fromLegacyFallback: false,
         sandboxReason:
           `keyScope="trial" requested but chain="${chain}" is not a trial-eligible chain ` +
-          `at this time. Trial keys support BNB Chain (permanent) and ` +
+          `at this time. Trial keys support BNB Chain (permanent), Base (permanent), and ` +
           `Mantle (limited-time: 2026-08-21~08-28 UTC+9). Avalanche trial has ended. ` +
           `Drop keyScope (or set keyScope="multichain") to use the paid Multichain key on ${chain}.`,
       };

@@ -21,6 +21,7 @@ import {
   expireVerdictInCache,
   resetPrecheckState,
   _overrideCachePath,
+  makeX402TrustCheckFn,
   PRECHECK_OPT_OUT_ENV,
   PRECHECK_FEE_USD,
   type PrecheckContext,
@@ -483,5 +484,51 @@ describe("AC-D4: free-basic-verdict fallback — two edge cases only", () => {
 describe("AC-PRICE: pre-check fee value", () => {
   test("PRECHECK_FEE_USD is $0.02", () => {
     assert.strictEqual(PRECHECK_FEE_USD, 0.02);
+  });
+});
+
+// ── makeX402TrustCheckFn: URL must not double /api ──────────────────────────
+
+describe("makeX402TrustCheckFn: trust-check URL construction", () => {
+  const TEST_ADDR = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+  test("default relayBaseUrl (ends in /api) produces exactly one /api segment", async () => {
+    const capturedUrls: string[] = [];
+    // Intercept fetch to capture the URL without making a real network call.
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      capturedUrls.push(url.toString());
+      return new Response(JSON.stringify({ riskFlags: [] }), { status: 200 });
+    }) as typeof globalThis.fetch;
+    try {
+      const fn = makeX402TrustCheckFn({ relayBaseUrl: "https://q402.quackai.ai/api" });
+      await fn(TEST_ADDR);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+    assert.strictEqual(capturedUrls.length, 1);
+    const url = capturedUrls[0]!;
+    // Must contain exactly one occurrence of "/api" in the path prefix.
+    const apiCount = (url.match(/\/api\//g) ?? []).length;
+    assert.strictEqual(apiCount, 1, `URL "${url}" contains ${apiCount} /api/ segments, expected 1`);
+    assert.ok(url.includes("/api/x402/agent-trust/"), `URL "${url}" must include /api/x402/agent-trust/`);
+    assert.ok(!url.includes("/api/api/"), `URL "${url}" must NOT contain double /api/api/`);
+  });
+
+  test("relayBaseUrl without trailing /api is unaffected", async () => {
+    const capturedUrls: string[] = [];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      capturedUrls.push(url.toString());
+      return new Response(JSON.stringify({ riskFlags: [] }), { status: 200 });
+    }) as typeof globalThis.fetch;
+    try {
+      const fn = makeX402TrustCheckFn({ relayBaseUrl: "https://relay.example.com" });
+      await fn(TEST_ADDR);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+    const url = capturedUrls[0]!;
+    assert.ok(url.startsWith("https://relay.example.com/api/x402/agent-trust/"), `Unexpected URL: ${url}`);
   });
 });
