@@ -394,7 +394,11 @@ export function makeX402TrustCheckFn(opts: {
   relayBaseUrl: string;
 }): TrustCheckFn {
   return async (address: string) => {
-    const url = `${opts.relayBaseUrl}/api/x402/agent-trust/${address}`;
+    // Strip a trailing /api segment: CONFIG.relayBaseUrl already ends in /api
+    // (default https://q402.quackai.ai/api), so a naïve join would produce
+    // /api/api/ and 404 on every production pre-check.
+    const base = opts.relayBaseUrl.replace(/\/api\/?$/, "");
+    const url = `${base}/api/x402/agent-trust/${address}`;
 
     // Step 1: initial GET (no payment header)
     const resp1 = await fetch(url, {

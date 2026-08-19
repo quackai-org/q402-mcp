@@ -66,7 +66,7 @@ export const PayInputSchema = z.object({
       'Which API key to use. "auto" (default): trial-eligible chain + ' +
         'Q402_TRIAL_API_KEY set → Trial (free sponsored); else Multichain. ' +
         '"trial" forces the Trial sponsored key (BNB Chain permanently; ' +
-        'Mantle limited-time 2026-08-21~08-28 UTC+9; Avalanche trial has ended). ' +
+        'Base permanently; Mantle limited-time 2026-08-21~08-28 UTC+9; Avalanche trial has ended). ' +
         '"multichain" forces the paid 12-chain key. Same rule applies to q402_batch_pay.',
     ),
   walletMode: z
@@ -471,7 +471,7 @@ export async function runPay(input: PayInput): Promise<PaySummary> {
   // resolved to a live key (env missing, impossible chain×scope combo, …) the
   // resolver returns `apiKey: null` plus a `sandboxReason` hint that we
   // surface as the agent-visible setupHint. Unified rule with q402_batch_pay:
-  // BNB + Trial key set ⇒ Trial (Avalanche trial ended); else Multichain.
+  // BNB/Base + Trial key set ⇒ Trial (Avalanche trial ended); else Multichain.
   const scopeRequest: KeyScopeRequest = input.keyScope ?? "auto";
   const resolved = resolveApiKey(input.chain, scopeRequest);
   guardsApplied.push(`scope=${resolved.scope}${resolved.fromLegacyFallback ? "(legacy)" : ""}`);
@@ -980,7 +980,7 @@ export const PAY_TOOL = {
     "Auto-routing: trial-eligible chain + Q402_TRIAL_API_KEY set → Trial (free sponsored); " +
     "anything else → Multichain (paid 12-chain). Same rule for q402_batch_pay. " +
     "Set keyScope='trial' or 'multichain' to force one explicitly. " +
-    "Trial keys cover BNB Chain (USDC/USDT gasless) permanently. " +
+    "Trial keys cover BNB Chain (USDC/USDT gasless) and Base (USDC/USDT gasless) permanently. " +
     "Avalanche trial has ended — use the Multichain key for avax. " +
     "Mantle (USDC/USDT gasless) is a limited-time trial chain during 2026-08-21~08-28 UTC+9 — " +
     "outside that window Mantle returns TRIAL_BNB_ONLY; use the Multichain key there. " +
@@ -1100,7 +1100,7 @@ export const PAY_TOOL = {
         enum: ["auto", "trial", "multichain"],
         description:
           'Which API key to use. "auto" (default) picks Trial for trial-eligible chains ' +
-          '(BNB Chain permanently; Mantle limited-time 2026-08-21~08-28 UTC+9; Avalanche trial ended) ' +
+          '(BNB Chain permanently; Base permanently; Mantle limited-time 2026-08-21~08-28 UTC+9; Avalanche trial ended) ' +
           'when Q402_TRIAL_API_KEY is set, Multichain otherwise. "trial" forces the ' +
           'Trial sponsored key. "multichain" forces the paid 12-chain key.',
       },

@@ -261,7 +261,7 @@ const ENV_FILE_TEMPLATE = `# ---------------------------------------------------
 # ----------------------------------------------------------------------
 # API KEY - paste on the right of \`=\` (one OR both for auto-routing)
 # ----------------------------------------------------------------------
-# Free Trial:        BNB Chain (permanent) + Mantle limited-time, 500 sponsored TX
+# Free Trial:        BNB Chain (permanent) + Base (permanent) + Mantle limited-time, 500 sponsored TX
 # Get one at:        https://q402.quackai.ai/event
 Q402_TRIAL_API_KEY=
 
@@ -638,7 +638,7 @@ export async function runDoctor(): Promise<DoctorReport> {
   const envState: Record<string, EnvSlot> = {
     Q402_TRIAL_API_KEY: envSlot(
       "Q402_TRIAL_API_KEY",
-      "Free Trial - BNB Chain (permanent) + Mantle limited-time, 500 sponsored TX. Get at https://q402.quackai.ai/event",
+      "Free Trial - BNB Chain (permanent) + Base (permanent) + Mantle limited-time, 500 sponsored TX. Get at https://q402.quackai.ai/event",
     ),
     Q402_MULTICHAIN_API_KEY: envSlot(
       "Q402_MULTICHAIN_API_KEY",
