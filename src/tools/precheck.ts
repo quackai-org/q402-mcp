@@ -394,7 +394,9 @@ export function makeX402TrustCheckFn(opts: {
   relayBaseUrl: string;
 }): TrustCheckFn {
   return async (address: string) => {
-    const url = `${opts.relayBaseUrl}/api/x402/agent-trust/${address}`;
+    // relayBaseUrl already ends with /api (e.g. https://q402.quackai.ai/api).
+    // Append /x402/… directly — no extra /api prefix here.
+    const url = `${opts.relayBaseUrl}/x402/agent-trust/${address}`;
 
     // Step 1: initial GET (no payment header)
     const resp1 = await fetch(url, {

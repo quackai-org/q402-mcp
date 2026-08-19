@@ -23,6 +23,7 @@ import {
   _overrideCachePath,
   PRECHECK_OPT_OUT_ENV,
   PRECHECK_FEE_USD,
+  makeX402TrustCheckFn,
   type PrecheckContext,
   type TrustCheckFn,
 } from "./precheck.js";
@@ -483,5 +484,101 @@ describe("AC-D4: free-basic-verdict fallback — two edge cases only", () => {
 describe("AC-PRICE: pre-check fee value", () => {
   test("PRECHECK_FEE_USD is $0.02", () => {
     assert.strictEqual(PRECHECK_FEE_USD, 0.02);
+  });
+});
+
+// ── makeX402TrustCheckFn: URL construction (post-release bug fix) ─────────────
+
+type FetchHandler = (url: unknown, init?: unknown) => Promise<Response>;
+
+function stubFetch(handlers: FetchHandler[]): () => void {
+  const orig = globalThis.fetch;
+  let idx = 0;
+  globalThis.fetch = async (url: unknown, init?: unknown): Promise<Response> => {
+    const h = handlers[idx++];
+    if (!h) throw new Error("stubFetch: no more responses");
+    return h(url, init);
+  };
+  return () => { globalThis.fetch = orig; };
+}
+
+function makeHttpResponse(status: number, body: string): Response {
+  return new Response(body, { status, headers: { "Content-Type": "application/json" } });
+}
+
+describe("makeX402TrustCheckFn: URL construction", () => {
+  const DEFAULT_RELAY = "https://q402.quackai.ai/api";
+
+  test("default relayBaseUrl produces URL with exactly one /api/ segment (no double /api/api/)", async () => {
+    let capturedUrl = "";
+    const restore = stubFetch([
+      async (url) => {
+        capturedUrl = String(url);
+        return makeHttpResponse(200, JSON.stringify({ riskFlags: [] }));
+      },
+    ]);
+    try {
+      const fn = makeX402TrustCheckFn({ relayBaseUrl: DEFAULT_RELAY });
+      await fn(ADDR_A);
+    } finally {
+      restore();
+    }
+    assert.ok(capturedUrl.length > 0, "fetch must have been called");
+    const apiSegments = capturedUrl.split("/api/").length - 1;
+    assert.strictEqual(
+      apiSegments, 1,
+      `URL must contain exactly one /api/ segment; got: ${capturedUrl}`,
+    );
+    assert.ok(
+      capturedUrl.includes("/x402/agent-trust/"),
+      `URL must contain /x402/agent-trust/, got: ${capturedUrl}`,
+    );
+  });
+
+  test("integration-shaped: 200 response with riskFlags returns correct risk level without charging", async () => {
+    const mockFlags = [{ flag: "OFAC_LIST", severity: "high", evidence: "test" }];
+    const restore = stubFetch([
+      async (url) => {
+        const urlStr = String(url);
+        assert.ok(
+          !urlStr.includes("/api/api/"),
+          `double /api/api/ in URL: ${urlStr}`,
+        );
+        assert.ok(
+          urlStr.endsWith(`/x402/agent-trust/${ADDR_A}`),
+          `URL must end with /x402/agent-trust/{address}, got: ${urlStr}`,
+        );
+        return makeHttpResponse(200, JSON.stringify({ riskFlags: mockFlags }));
+      },
+    ]);
+    try {
+      const fn = makeX402TrustCheckFn({ relayBaseUrl: DEFAULT_RELAY });
+      const result = await fn(ADDR_A);
+      assert.strictEqual(result.risk, "high");
+      assert.deepStrictEqual(result.flags, ["OFAC_LIST"]);
+      assert.strictEqual(result.settled, false, "200 on first GET means no on-chain settlement");
+    } finally {
+      restore();
+    }
+  });
+
+  test("integration-shaped: custom relayBaseUrl without /api suffix also builds correct path", async () => {
+    let capturedUrl = "";
+    const restore = stubFetch([
+      async (url) => {
+        capturedUrl = String(url);
+        return makeHttpResponse(200, JSON.stringify({ riskFlags: [] }));
+      },
+    ]);
+    try {
+      const fn = makeX402TrustCheckFn({ relayBaseUrl: "https://custom.example.com/api" });
+      await fn(ADDR_A);
+    } finally {
+      restore();
+    }
+    assert.ok(
+      capturedUrl.startsWith("https://custom.example.com/api/x402/agent-trust/"),
+      `URL must start with the relayBaseUrl + /x402/agent-trust/, got: ${capturedUrl}`,
+    );
   });
 });
