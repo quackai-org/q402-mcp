@@ -116,7 +116,7 @@ export const QUOTE_TOOL = {
     "Returns the full chain × token matrix unconditionally - this tool does " +
     "not read any API key, so it can't filter by trial vs multichain scope. " +
     "When the caller intends to settle with a Trial API Key, treat any row " +
-    "outside BNB Chain (and Mantle during its limited-time window) as informational only (q402_pay returns " +
+    "outside BNB Chain + Base (and Mantle during its limited-time window) as informational only (q402_pay returns " +
     "TRIAL_BNB_ONLY for those; Avalanche trial has ended). Includes RLUSD on Ethereum. Read-only - " +
     "no API key needed, no funds move. Use this before q402_pay so the user " +
     "can see what's available and pick a chain.",
