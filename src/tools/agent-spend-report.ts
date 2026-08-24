@@ -44,14 +44,20 @@ export async function runAgentSpendReport(input: AgentSpendReportInput = {}): Pr
     serverResult.status === "fulfilled" ? { ...(serverResult.value as object) } : {};
 
   const records = x402Records.status === "fulfilled" ? x402Records.value : [];
-  // settled_no_delivery: funds moved but content not delivered — count as spend, not as blocked.
+  // settled_no_delivery: confirmed spend (txHash on chain). settled_status_unknown: possible spend
+  // (no proof, but payment header was sent — precautionary spend count). Both count as totalUsd.
   const settled = records.filter(r => r.status === "settled" || r.status === "settled_no_delivery");
-  const blocked = records.filter(r => r.status !== "settled" && r.status !== "settled_no_delivery");
-  const totalUsd = settled.reduce((sum, r) => sum + parseFloat(r.amountUsd), 0);
+  const fundsUnknown = records.filter(r => r.status === "settled_status_unknown");
+  const blocked = records.filter(r =>
+    r.status !== "settled" && r.status !== "settled_no_delivery" && r.status !== "settled_status_unknown",
+  );
+  const totalUsd =
+    [...settled, ...fundsUnknown].reduce((sum, r) => sum + parseFloat(r.amountUsd), 0);
 
   result.outboundX402 = {
     window,
     settledCount: settled.length,
+    fundsMovedUnknownCount: fundsUnknown.length,
     blockedCount: blocked.length,
     totalUsd: totalUsd.toFixed(4),
     records,

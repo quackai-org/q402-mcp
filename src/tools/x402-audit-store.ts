@@ -26,7 +26,8 @@ export type X402AuditStatus =
   | "sign_failed"
   | "retry_failed"
   | "settled"
-  | "settled_no_delivery";
+  | "settled_no_delivery"
+  | "settled_status_unknown";
 
 export interface X402AuditRecord {
   id: string;
@@ -46,8 +47,8 @@ export interface X402AuditRecord {
   fundsMoved?: boolean;
   /** True when it is genuinely unknowable whether funds moved (e.g. network error after payment header sent). */
   fundsMovedUnknown?: boolean;
-  /** On-chain settlement txHash, when available from X-PAYMENT-RESPONSE header. */
-  txHash?: string;
+  /** On-chain settlement txHash from X-PAYMENT-RESPONSE header; null when explicitly absent. */
+  txHash?: string | null;
 }
 
 type StoreMap = Record<string, X402AuditRecord>;
