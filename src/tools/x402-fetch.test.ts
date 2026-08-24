@@ -1014,6 +1014,47 @@ describe("settled_no_delivery: payment accepted, seller returned non-2xx", () =>
     assert.strictEqual(withProof.retrySafe, false, "settled_no_delivery: retrySafe must be false");
   });
 
+  test("AC-9: network error after payment header sent — settled_status_unknown, retrySafe:false", async () => {
+    process.env["Q402_ENABLE_REAL_PAYMENTS"] = "1";
+    process.env["Q402_AGENTIC_PRIVATE_KEY"] = TEST_PK;
+    _setDelegationCheck(async () => false);
+    resetSessionSpendUsd();
+
+    const { checkConsent } = await import("../consent.js");
+    const consentIntent = {
+      t: "x402_fetch",
+      url: "https://stub.example/paid",
+      method: "GET",
+      payTo: SELLER.toLowerCase(),
+      amountAtomic: "1000",
+      asset: BASE_USDC.toLowerCase(),
+      network: "base",
+    };
+    const { expected: token } = checkConsent(consentIntent, undefined);
+
+    const restore = stubFetch([
+      () => Promise.resolve(makeResponse(402, make402Body({ amount: "1000" }))),
+      () => Promise.reject(new Error("ECONNRESET")),
+    ]);
+
+    try {
+      const result = await runX402Fetch({
+        url: "https://stub.example/paid",
+        confirm: true,
+        consentToken: token,
+      });
+      assert.strictEqual(result.status, "settled_status_unknown", "network error must yield settled_status_unknown");
+      assert.strictEqual(result.retrySafe, false, "network error after payment header: retrySafe must be false");
+      assert.strictEqual(result.fundsMovedUnknown, true, "network error: fundsMovedUnknown must be true");
+    } finally {
+      restore();
+      _setDelegationCheck(null);
+      delete process.env["Q402_ENABLE_REAL_PAYMENTS"];
+      delete process.env["Q402_AGENTIC_PRIVATE_KEY"];
+      resetSessionSpendUsd();
+    }
+  });
+
   test("AC-5: result is not a plain success:false — always has funds status indicator", async () => {
     const result = await runSettledNoDelivery();
     const hasFundsIndicator = result.fundsMoved === true || result.fundsMovedUnknown === true;
