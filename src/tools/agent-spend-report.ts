@@ -44,8 +44,9 @@ export async function runAgentSpendReport(input: AgentSpendReportInput = {}): Pr
     serverResult.status === "fulfilled" ? { ...(serverResult.value as object) } : {};
 
   const records = x402Records.status === "fulfilled" ? x402Records.value : [];
-  const settled = records.filter(r => r.status === "settled");
-  const blocked = records.filter(r => r.status !== "settled");
+  // settled_no_delivery: funds moved but content not delivered — count as spend, not as blocked.
+  const settled = records.filter(r => r.status === "settled" || r.status === "settled_no_delivery");
+  const blocked = records.filter(r => r.status !== "settled" && r.status !== "settled_no_delivery");
   const totalUsd = settled.reduce((sum, r) => sum + parseFloat(r.amountUsd), 0);
 
   result.outboundX402 = {

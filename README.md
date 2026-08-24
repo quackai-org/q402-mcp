@@ -243,7 +243,7 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 | `q402_redstone_trigger_list` | live mode | List the Agent Wallet's RedStone triggers + their state. |
 | `q402_redstone_trigger_cancel` | live mode | Permanently stop a RedStone trigger. |
 | **x402 (outbound)** | | |
-| `q402_x402_fetch` | live mode | Fetch any x402-gated URL and handle HTTP 402 automatically: validates Base USDC payment option, guards against excess spend, signs EIP-3009 TransferWithAuthorization, and retries with the correct payment header (PAYMENT-SIGNATURE for v2 servers, X-PAYMENT for v1 legacy). Non-402 responses pass through unchanged. |
+| `q402_x402_fetch` | live mode | Fetch any x402-gated URL and handle HTTP 402 automatically: validates Base USDC payment option, guards against excess spend, signs EIP-3009 TransferWithAuthorization, and retries with the correct payment header (PAYMENT-SIGNATURE for v2 servers, X-PAYMENT for v1 legacy). Non-402 responses pass through unchanged. Returns `status:"settled_no_delivery"` with `fundsMoved:true, retrySafe:false` when payment settles on-chain but the seller returns a non-2xx error — do not retry in this case, funds have already moved. |
 
 `q402_pay` + `q402_batch_pay` + `q402_bridge_send` + `q402_yield_deposit` + `q402_yield_withdraw` + `q402_stake` + `q402_unstake` + `q402_request_pay` require explicit in-chat confirmation. Batch confirmation = full batch, not per-row.
 
@@ -270,7 +270,17 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 
 Two-phase consent flow: the first call (without `consentToken`) returns `needs_confirmation` and a preview of the amount and recipient. Re-call with the same arguments plus the returned `consentToken` to authorize the payment.
 
-**Audit.** Every 402 attempt - settled or blocked by a guard - is written to the local audit log at `~/.q402/x402-audit.json` and surfaced in `q402_agent_spend_report`. These are local records on the agent's machine.
+**Result outcomes — read before summarizing to users.**
+
+| Outcome | Fields | Meaning |
+|---|---|---|
+| `success: true` | `body`, `paid: true`, `payTo`, `amountUsd` | Content delivered, payment settled. |
+| `success: false`, `needsConsent` set | `consentToken`, `preview` | No payment made. Re-call with `consentToken`. |
+| `success: false`, `status: "settled_no_delivery"` | `fundsMoved: true`, `retrySafe: false`, `recipient`, `amount`, `txHash?`, `nextStep` | **Funds left the wallet, content not delivered.** The seller accepted the payment but returned an error. Do NOT tell the user "the payment didn't go through" — funds moved. Do NOT retry with the same arguments — that would make a second payment. Surface `amount`, `recipient`, `txHash` (if present), and `nextStep` to the user so they can reconcile with the seller. |
+| `success: false`, `fundsMovedUnknown: true` | `retrySafe: false`, `recipient`, `amount` | Network error after payment header sent. It is unknown whether funds moved. Do NOT retry. |
+| `success: false` (other) | `error` | Payment blocked or rejected before settlement. No funds moved. Safe to retry. |
+
+**Audit.** Every 402 attempt — settled, `settled_no_delivery`, or blocked — is written to the local audit log at `~/.q402/x402-audit.json` and surfaced in `q402_agent_spend_report`. `settled_no_delivery` outcomes count as spend in the report (funds moved even if content was not received).
 
 **Minimum working example.**
 
