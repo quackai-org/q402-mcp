@@ -243,7 +243,7 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 | `q402_redstone_trigger_list` | live mode | List the Agent Wallet's RedStone triggers + their state. |
 | `q402_redstone_trigger_cancel` | live mode | Permanently stop a RedStone trigger. |
 | **x402 (outbound)** | | |
-| `q402_x402_fetch` | live mode | Fetch any x402-gated URL and handle HTTP 402 automatically: validates Base USDC payment option, guards against excess spend, signs EIP-3009 TransferWithAuthorization, and retries with the correct payment header (PAYMENT-SIGNATURE for v2 servers, X-PAYMENT for v1 legacy). Non-402 responses pass through unchanged. Returns `status:"settled_no_delivery"` with `fundsMoved:true, retrySafe:false` when payment settles on-chain but the seller returns a non-2xx error — do not retry in this case, funds have already moved. |
+| `q402_x402_fetch` | live mode | Fetch any x402-gated URL and handle HTTP 402 automatically: validates Base USDC payment option, guards against excess spend, signs EIP-3009 TransferWithAuthorization, and retries with the correct payment header (PAYMENT-SIGNATURE for v2 servers, X-PAYMENT for v1 legacy). Non-402 responses pass through unchanged. Returns `status:"settled_no_delivery"` (`fundsMoved:true, retrySafe:false`) when a txHash in the response confirms funds moved but the seller returned an error. Returns `status:"settled_status_unknown"` (`fundsMovedUnknown:true, retrySafe:false`) when no settlement proof exists — funds may or may not have moved. Do NOT retry either outcome. |
 
 `q402_pay` + `q402_batch_pay` + `q402_bridge_send` + `q402_yield_deposit` + `q402_yield_withdraw` + `q402_stake` + `q402_unstake` + `q402_request_pay` require explicit in-chat confirmation. Batch confirmation = full batch, not per-row.
 
@@ -276,11 +276,11 @@ Two-phase consent flow: the first call (without `consentToken`) returns `needs_c
 |---|---|---|
 | `success: true` | `body`, `paid: true`, `payTo`, `amountUsd` | Content delivered, payment settled. |
 | `success: false`, `needsConsent` set | `consentToken`, `preview` | No payment made. Re-call with `consentToken`. |
-| `success: false`, `status: "settled_no_delivery"` | `fundsMoved: true`, `retrySafe: false`, `recipient`, `amount`, `txHash?`, `nextStep` | **Funds left the wallet, content not delivered.** The seller accepted the payment but returned an error. Do NOT tell the user "the payment didn't go through" — funds moved. Do NOT retry with the same arguments — that would make a second payment. Surface `amount`, `recipient`, `txHash` (if present), and `nextStep` to the user so they can reconcile with the seller. |
-| `success: false`, `fundsMovedUnknown: true` | `retrySafe: false`, `recipient`, `amount` | Network error after payment header sent. It is unknown whether funds moved. Do NOT retry. |
+| `success: false`, `status: "settled_no_delivery"` | `fundsMoved: true`, `retrySafe: false`, `recipient`, `amount`, `txHash`, `guidance` | **Funds confirmed left the wallet, content not delivered.** Settlement is proven by `txHash` from the response. The seller accepted payment but returned an error. Do NOT tell the user "the payment didn't go through" — funds moved. Do NOT retry — that would make a second payment. Surface `amount`, `recipient`, `txHash`, and `guidance` to the user so they can reconcile with the seller. |
+| `success: false`, `status: "settled_status_unknown"` | `fundsMovedUnknown: true`, `retrySafe: false`, `recipient`, `amount`, `txHash: null`, `guidance` | **Settlement unknown — funds may or may not have moved.** Payment header was sent but the response contained no settlement proof (no `txHash`). Do NOT assert that funds moved or didn't move. Do NOT retry with the same parameters — funds may have already moved. Surface `guidance` so the user can check their wallet balance and contact the seller. |
 | `success: false` (other) | `error` | Payment blocked or rejected before settlement. No funds moved. Safe to retry. |
 
-**Audit.** Every 402 attempt — settled, `settled_no_delivery`, or blocked — is written to the local audit log at `~/.q402/x402-audit.json` and surfaced in `q402_agent_spend_report`. `settled_no_delivery` outcomes count as spend in the report (funds moved even if content was not received).
+**Audit.** Every 402 attempt — settled, `settled_no_delivery`, `settled_status_unknown`, or blocked — is written to the local audit log at `~/.q402/x402-audit.json` and surfaced in `q402_agent_spend_report`. Both `settled_no_delivery` and `settled_status_unknown` outcomes count as spend in the report.
 
 **Minimum working example.**
 
