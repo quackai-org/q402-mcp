@@ -1019,6 +1019,11 @@ export const PAY_TOOL = {
     "Note: only Mode 'eoa' creates the delegation - 'agentic-local' and " +
     "'agentic-server' modes use the Agent Wallet (a fresh EOA) so the user's " +
     "MetaMask is never delegated. " +
+    "IMPORTANT: the EIP-7702 delegation created by q402_pay makes q402_x402_fetch " +
+    "unable to sign x402 payments (EIP-3009 is incompatible with a delegated EOA). " +
+    "If the user needs to use q402_x402_fetch on the same wallet, they must call " +
+    "q402_clear_delegation first (gasless on Base, reversible — the next q402_pay " +
+    "re-delegates automatically). " +
     "\n\n" +
     "If the user EVER reports that native gas tokens (BNB / ETH / AVAX / " +
     "etc.) sent INTO their Q402 wallet are bouncing or reverting on a chain " +

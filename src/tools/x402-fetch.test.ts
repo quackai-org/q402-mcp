@@ -1137,6 +1137,40 @@ describe("settled_no_delivery: payment accepted, seller returned non-2xx", () =>
     assert.ok(result.guidance!.toLowerCase().includes("not"), `guidance must warn against retry: ${result.guidance}`);
   });
 
+  test("AC-12: guidance includes /.well-known/x402.json self-check layer (settled_status_unknown)", async () => {
+    const result = await runSettledNoDelivery({ sellerStatus: 405 });
+    assert.ok(result.guidance !== undefined, "guidance must be present");
+    assert.ok(
+      result.guidance!.includes("/.well-known/x402.json"),
+      `guidance must point to /.well-known/x402.json for request shape self-check: ${result.guidance}`,
+    );
+    assert.ok(
+      result.guidance!.toLowerCase().includes("not"),
+      `guidance must still warn against retry with same parameters: ${result.guidance}`,
+    );
+  });
+
+  test("AC-12: guidance includes /.well-known/x402.json self-check layer (settled_no_delivery with txHash)", async () => {
+    const fakeTxHash = "0xabc123def456abc123def456abc123def456abc123def456abc123def456abc1";
+    const xPaymentResponse = Buffer.from(
+      JSON.stringify({ txHash: fakeTxHash, status: "confirmed" }),
+    ).toString("base64");
+    const result = await runSettledNoDelivery({ sellerStatus: 405, xPaymentResponseHeader: xPaymentResponse });
+    assert.ok(result.guidance !== undefined, "guidance must be present");
+    assert.ok(
+      result.guidance!.includes("/.well-known/x402.json"),
+      `guidance must point to /.well-known/x402.json for request shape self-check: ${result.guidance}`,
+    );
+    assert.ok(
+      result.guidance!.toLowerCase().includes("not"),
+      `guidance must still warn against retry with same parameters: ${result.guidance}`,
+    );
+    assert.ok(
+      result.guidance!.includes(fakeTxHash),
+      `guidance must still include txHash: ${result.guidance}`,
+    );
+  });
+
   test("AC-1 regression: retry 402 is NOT settled_no_delivery (payment rejected, funds did not move)", async () => {
     process.env["Q402_ENABLE_REAL_PAYMENTS"] = "1";
     process.env["Q402_AGENTIC_PRIVATE_KEY"] = TEST_PK;

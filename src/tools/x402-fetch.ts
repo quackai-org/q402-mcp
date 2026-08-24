@@ -678,7 +678,11 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
         `A payment of $${amountUsd} USDC to ${req.payTo} may have settled on-chain. ` +
         "Settlement cannot be confirmed due to a network error. " +
         "Do NOT retry with the same parameters — funds may have already moved. " +
-        "Check your wallet balance and contact the seller to investigate.",
+        "Before contacting the seller, check whether the failure was caused by a wrong request shape " +
+        "(wrong HTTP method, body, or content-type): read the endpoint's /.well-known/x402.json " +
+        "to find the correct method and body format, then retry with the corrected shape " +
+        "(do NOT reuse the same parameters). " +
+        "If the request shape was correct, contact the seller with your wallet balance history to investigate.",
     };
   }
 
@@ -769,8 +773,12 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
         guidance:
           `Payment of $${amountUsd} USDC to ${req.payTo} settled on-chain (tx ${txHash}). ` +
           "The seller accepted payment but returned an error and did not deliver content. " +
-          "Use this on-chain record to contact the seller and claim delivery. " +
-          "Do NOT call q402_x402_fetch again with the same arguments — the payment has already been made.",
+          "Do NOT call q402_x402_fetch again with the same arguments — the payment has already been made. " +
+          "Before contacting the seller, check whether the failure was caused by a wrong request shape " +
+          "(wrong HTTP method, body, or content-type): read the endpoint's /.well-known/x402.json " +
+          "to find the correct method and body format, then retry with the corrected shape " +
+          "(do NOT reuse the same parameters). " +
+          `If the request shape was correct, contact the seller with this on-chain record (tx ${txHash}) to claim delivery.`,
       };
     }
 
@@ -806,7 +814,11 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
         `A payment of $${amountUsd} USDC to ${req.payTo} may have settled on-chain. ` +
         "Settlement cannot be confirmed — no settlement proof was found in the response headers. " +
         "Do NOT retry with the same parameters — funds may have already moved. " +
-        "Check your wallet balance and contact the seller to investigate.",
+        "Before contacting the seller, check whether the failure was caused by a wrong request shape " +
+        "(wrong HTTP method, body, or content-type): read the endpoint's /.well-known/x402.json " +
+        "to find the correct method and body format, then retry with the corrected shape " +
+        "(do NOT reuse the same parameters). " +
+        "If the request shape was correct, contact the seller to investigate.",
     };
   }
 
@@ -843,6 +855,14 @@ export const X402_FETCH_TOOL = {
     "the payment option (Base USDC only), guards against excess spend, signs an EIP-3009 " +
     "TransferWithAuthorization, and retries with PAYMENT-SIGNATURE (v2 servers) or X-PAYMENT (v1 legacy). Non-402 responses " +
     "are passed through directly, so this also serves as a regular fetch tool. " +
+    "\n\n" +
+    "PREREQUISITE — EIP-7702 delegation check: this tool signs payments via EIP-3009, which " +
+    "is incompatible with an EIP-7702-delegated wallet. If q402_pay has been called on this " +
+    "wallet (it activates EIP-7702 delegation on the first payment per chain), " +
+    "q402_x402_fetch will fail until the delegation is cleared. The check is automatic: " +
+    "if the wallet is delegated, this tool returns a delegationBlocked result with step-by-step " +
+    "recovery instructions. To clear the delegation proactively, call q402_clear_delegation " +
+    "(gasless on Base, reversible — the next q402_pay re-delegates automatically). " +
     "\n\n" +
     "SUPPORTED: scheme=exact + network=base (i.e. CAIP-2 eip155:8453; also accepted: " +
     "base-mainnet) + asset=Base USDC only. Any other scheme/network/asset returns an " +
