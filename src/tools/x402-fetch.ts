@@ -184,6 +184,36 @@ export interface X402FetchResult {
     why: string;
     steps: Array<{ step: number; tool: string; purpose: string }>;
   };
+  /**
+   * "settled_no_delivery": payment settled on-chain (txHash confirmed), seller returned error.
+   * "settled_status_unknown": payment header was sent but settlement cannot be confirmed
+   * (no txHash in response, or network error) — funds may or may not have moved.
+   * Both outcomes: retrySafe:false — do NOT call again with the same arguments.
+   */
+  status?: "settled_no_delivery" | "settled_status_unknown";
+  /**
+   * True when funds are confirmed to have left the wallet (settled_no_delivery).
+   * False when payment was explicitly rejected by the facilitator (retry 402).
+   */
+  fundsMoved?: boolean;
+  /**
+   * True when it cannot be determined whether funds moved (e.g. network error
+   * after the payment header was sent). Treat as "funds may have moved."
+   */
+  fundsMovedUnknown?: boolean;
+  /**
+   * False when re-calling with the same arguments would risk a second payment.
+   * Always false for settled_no_delivery and fundsMovedUnknown outcomes.
+   */
+  retrySafe?: boolean;
+  /** Settlement txHash from X-PAYMENT-RESPONSE header; null when no proof was available. */
+  txHash?: string | null;
+  /** Recipient address from the 402 challenge. Present on all post-payment-header failure outcomes. */
+  recipient?: string;
+  /** Amount in USD. Present on all post-payment-header failure outcomes. */
+  amount?: string;
+  /** Human-readable guidance: what happened, what to do, why not to retry. */
+  guidance?: string;
 }
 
 // ── Guard helpers ──────────────────────────────────────────────────────────────
@@ -211,6 +241,9 @@ function writeAudit(fields: {
   blockedReason?: string;
   settlementStatusCode?: number;
   responseExcerpt?:      string;
+  fundsMoved?:           boolean;
+  fundsMovedUnknown?:    boolean;
+  txHash?:               string | null;
 }, path?: string): void {
   const record: X402AuditRecord = {
     ...fields,
@@ -621,39 +654,171 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
       signal: AbortSignal.timeout(30_000),
     });
   } catch (e) {
+    // Network error / timeout after the payment header was already sent: settlement unknown.
+    // Treat identically to settled_status_unknown — do not assert funds moved, do not retry.
     const reason = `x402: retry fetch failed: ${e instanceof Error ? e.message : String(e)}`;
+    addSessionSpend(amountNum);
     writeAudit({
       id: auditId, url: input.url, method, payTo: req.payTo, asset: req.asset,
       network: req.network, amountAtomic: req.amount, amountUsd,
-      status: "retry_failed", blockedReason: reason,
+      status: "settled_status_unknown", blockedReason: reason,
+      fundsMovedUnknown: true, txHash: null,
     });
-    return { success: false, statusCode: 402, error: reason, auditId };
+    return {
+      success: false,
+      status: "settled_status_unknown",
+      error: reason,
+      auditId,
+      fundsMovedUnknown: true,
+      txHash: null,
+      retrySafe: false,
+      recipient: req.payTo,
+      amount: amountUsd,
+      guidance:
+        `A payment of $${amountUsd} USDC to ${req.payTo} may have settled on-chain. ` +
+        "Settlement cannot be confirmed due to a network error. " +
+        "Do NOT retry with the same parameters — funds may have already moved. " +
+        "Before contacting the seller, check whether the failure was caused by a wrong request shape " +
+        "(wrong HTTP method, body, or content-type): read the endpoint's /.well-known/x402.json " +
+        "to find the correct method and body format, then retry with the corrected shape " +
+        "(do NOT reuse the same parameters). " +
+        "If the request shape was correct, contact the seller with your wallet balance history to investigate.",
+    };
   }
 
   let responseBody = "";
   try { responseBody = await retryResp.text(); } catch { /* ignore */ }
   const excerpt = responseBody.slice(0, 200);
 
+  // Attempt to read txHash from X-PAYMENT-RESPONSE header (x402 v2 settlement receipt).
+  // Facilitators include this header in the forwarded response when payment is verified,
+  // even if the seller subsequently returns an error status.
+  let txHash: string | undefined;
+  try {
+    const paymentResponse = retryResp.headers.get("x-payment-response");
+    if (paymentResponse) {
+      const receipt = JSON.parse(
+        Buffer.from(paymentResponse, "base64").toString("utf-8"),
+      ) as Record<string, unknown>;
+      const candidate = receipt["txHash"] ?? receipt["transactionHash"];
+      if (typeof candidate === "string" && candidate.startsWith("0x")) {
+        txHash = candidate;
+      }
+    }
+  } catch { /* header absent or not valid base64 JSON — proceed without txHash */ }
+
   if (!retryResp.ok) {
+    // HTTP 402 on retry = facilitator rejected the payment before settlement (invalid sig, wrong
+    // amount, etc.). Funds provably did NOT move — 402 is the protocol signal for pre-settlement
+    // rejection. Safe to retry with corrected parameters.
+    if (retryResp.status === 402) {
+      writeAudit({
+        id: auditId, url: input.url, method, payTo: req.payTo, asset: req.asset,
+        network: req.network, amountAtomic: req.amount, amountUsd,
+        status: "retry_failed",
+        settlementStatusCode: retryResp.status,
+        responseExcerpt: excerpt,
+        fundsMoved: false,
+      });
+      const delegationHint =
+        delegationStatus === "check_skipped"
+          ? " Delegation check was skipped (RPC unavailable) — if this repeats, " +
+            "the signing wallet may be EIP-7702 delegated: run q402_wallet_status " +
+            "to verify and q402_clear_delegation to fix."
+          : "";
+      return {
+        success: false,
+        statusCode: retryResp.status,
+        error: `x402: retry returned HTTP ${retryResp.status} (payment rejected by facilitator).${delegationHint}`,
+        body: responseBody,
+        auditId,
+        fundsMoved: false,
+        retrySafe: true,
+        recipient: req.payTo,
+        amount: amountUsd,
+        guidance:
+          `Payment of $${amountUsd} USDC to ${req.payTo} was rejected by the facilitator before settlement. ` +
+          "Funds did not move. You may retry with corrected parameters.",
+      };
+    }
+
+    // Non-402 retry failure (403/405/5xx): payment header was submitted. Settlement status
+    // depends on whether the facilitator included X-PAYMENT-RESPONSE with a txHash.
+    addSessionSpend(amountNum);
+    if (txHash !== undefined) {
+      // Settlement confirmed: txHash proves funds moved. Seller failed to deliver.
+      writeAudit({
+        id: auditId, url: input.url, method, payTo: req.payTo, asset: req.asset,
+        network: req.network, amountAtomic: req.amount, amountUsd,
+        status: "settled_no_delivery",
+        settlementStatusCode: retryResp.status,
+        responseExcerpt: excerpt,
+        fundsMoved: true,
+        txHash,
+      });
+      return {
+        success: false,
+        status: "settled_no_delivery",
+        statusCode: retryResp.status,
+        error:
+          `x402: payment settled (tx ${txHash}) but seller returned HTTP ${retryResp.status} — ` +
+          "funds have left your wallet and content was not delivered.",
+        body: responseBody,
+        auditId,
+        fundsMoved: true,
+        txHash,
+        retrySafe: false,
+        recipient: req.payTo,
+        amount: amountUsd,
+        guidance:
+          `Payment of $${amountUsd} USDC to ${req.payTo} settled on-chain (tx ${txHash}). ` +
+          "The seller accepted payment but returned an error and did not deliver content. " +
+          "Do NOT call q402_x402_fetch again with the same arguments — the payment has already been made. " +
+          "Before contacting the seller, check whether the failure was caused by a wrong request shape " +
+          "(wrong HTTP method, body, or content-type): read the endpoint's /.well-known/x402.json " +
+          "to find the correct method and body format, then retry with the corrected shape " +
+          "(do NOT reuse the same parameters). " +
+          `If the request shape was correct, contact the seller with this on-chain record (tx ${txHash}) to claim delivery.`,
+      };
+    }
+
+    // No settlement proof: cannot confirm whether funds moved. Honest unknown — do not assert.
     writeAudit({
       id: auditId, url: input.url, method, payTo: req.payTo, asset: req.asset,
       network: req.network, amountAtomic: req.amount, amountUsd,
-      status: "retry_failed",
+      status: "settled_status_unknown",
       settlementStatusCode: retryResp.status,
       responseExcerpt: excerpt,
+      fundsMovedUnknown: true,
+      txHash: null,
     });
-    const delegationHint =
+    const delegationHintUnknown =
       delegationStatus === "check_skipped"
-        ? " Delegation check was skipped (RPC unavailable) — if this repeats, " +
-          "the signing wallet may be EIP-7702 delegated: run q402_wallet_status " +
-          "to verify and q402_clear_delegation to fix."
+        ? " (delegation check skipped — run q402_wallet_status if this repeats)"
         : "";
     return {
       success: false,
+      status: "settled_status_unknown",
       statusCode: retryResp.status,
-      error: `x402: retry returned HTTP ${retryResp.status}.${delegationHint}`,
+      error:
+        `x402: retry returned HTTP ${retryResp.status} — settlement status unknown, do not retry.` +
+        delegationHintUnknown,
       body: responseBody,
       auditId,
+      fundsMovedUnknown: true,
+      txHash: null,
+      retrySafe: false,
+      recipient: req.payTo,
+      amount: amountUsd,
+      guidance:
+        `A payment of $${amountUsd} USDC to ${req.payTo} may have settled on-chain. ` +
+        "Settlement cannot be confirmed — no settlement proof was found in the response headers. " +
+        "Do NOT retry with the same parameters — funds may have already moved. " +
+        "Before contacting the seller, check whether the failure was caused by a wrong request shape " +
+        "(wrong HTTP method, body, or content-type): read the endpoint's /.well-known/x402.json " +
+        "to find the correct method and body format, then retry with the corrected shape " +
+        "(do NOT reuse the same parameters). " +
+        "If the request shape was correct, contact the seller to investigate.",
     };
   }
 
@@ -665,6 +830,7 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
     status: "settled",
     settlementStatusCode: retryResp.status,
     responseExcerpt: excerpt,
+    txHash,
   });
 
   return {
@@ -675,6 +841,7 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
     payTo: req.payTo,
     amountUsd: humanAmount,
     auditId,
+    txHash,
   };
 }
 
@@ -689,6 +856,14 @@ export const X402_FETCH_TOOL = {
     "TransferWithAuthorization, and retries with PAYMENT-SIGNATURE (v2 servers) or X-PAYMENT (v1 legacy). Non-402 responses " +
     "are passed through directly, so this also serves as a regular fetch tool. " +
     "\n\n" +
+    "PREREQUISITE — EIP-7702 delegation check: this tool signs payments via EIP-3009, which " +
+    "is incompatible with an EIP-7702-delegated wallet. If q402_pay has been called on this " +
+    "wallet (it activates EIP-7702 delegation on the first payment per chain), " +
+    "q402_x402_fetch will fail until the delegation is cleared. The check is automatic: " +
+    "if the wallet is delegated, this tool returns a delegationBlocked result with step-by-step " +
+    "recovery instructions. To clear the delegation proactively, call q402_clear_delegation " +
+    "(gasless on Base, reversible — the next q402_pay re-delegates automatically). " +
+    "\n\n" +
     "SUPPORTED: scheme=exact + network=base (i.e. CAIP-2 eip155:8453; also accepted: " +
     "base-mainnet) + asset=Base USDC only. Any other scheme/network/asset returns an " +
     "explicit rejection without signing. " +
@@ -697,8 +872,27 @@ export const X402_FETCH_TOOL = {
     "cap (Q402_X402_SESSION_CAP_USD, default $5), and two-phase consent. First call without " +
     "consentToken returns needs_confirmation + preview; re-call with consentToken to pay. " +
     "\n\n" +
+    "OUTCOMES — read these carefully before summarizing results to users:\n" +
+    "- success:true — content delivered and paid.\n" +
+    "- success:false, needsConsent set — no payment made yet; re-call with consentToken.\n" +
+    "- success:false, status:'settled_no_delivery', fundsMoved:true, txHash present, retrySafe:false — " +
+    "FUNDS HAVE LEFT THE WALLET (settlement confirmed on-chain). Seller returned an error. " +
+    "Do NOT tell the user 'the payment did not go through' — funds moved. " +
+    "Do NOT call this tool again with the same arguments. " +
+    "Surface amount, recipient, txHash, and guidance to the user.\n" +
+    "- success:false, status:'settled_status_unknown', fundsMovedUnknown:true, txHash:null, retrySafe:false — " +
+    "FUNDS MAY HAVE MOVED but settlement cannot be confirmed (no proof in response headers, " +
+    "or a network error after the payment header was sent). " +
+    "Do NOT tell the user 'the payment did not go through' — funds may have moved. " +
+    "Do NOT retry with the same parameters. Surface guidance to the user so they can check " +
+    "their wallet balance and contact the seller.\n" +
+    "- success:false, fundsMoved:false, retrySafe:true — payment rejected by facilitator (retry HTTP 402); " +
+    "funds did not move. May retry with corrected parameters.\n" +
+    "- success:false (other) — payment was blocked or rejected before settlement; no funds moved.\n" +
+    "\n" +
     "AUDIT: every 402 attempt (including blocked ones) is written to the local x402 audit " +
-    "log and included in q402_agent_spend_report output. " +
+    "log and included in q402_agent_spend_report output. settled_no_delivery and " +
+    "settled_status_unknown outcomes are counted as spend in q402_agent_spend_report. " +
     "\n\n" +
     "REQUIRES Q402_ENABLE_REAL_PAYMENTS=1 and Q402_AGENTIC_PRIVATE_KEY (or Q402_PRIVATE_KEY). " +
     "No calls to /api/relay — the signed authorization goes directly to the seller/facilitator. " +

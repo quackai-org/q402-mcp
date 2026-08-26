@@ -85,7 +85,7 @@ The agent runs `q402_doctor`. On first install:
 
 | Mode | Env | Signer | Notes |
 |---|---|---|---|
-| **A** | `Q402_PRIVATE_KEY` | MetaMask EOA, local | Simplest. Shows "Smart account" after first use (reversible via `q402_clear_delegation`). |
+| **A** | `Q402_PRIVATE_KEY` | MetaMask EOA, local | Simplest. Shows "Smart account" after first use (reversible via `q402_clear_delegation`). After EIP-7702 delegation, `q402_x402_fetch` is unavailable until `q402_clear_delegation` is called (gasless, reversible; next `q402_pay` re-delegates). |
 | **B** | `Q402_AGENTIC_PRIVATE_KEY` | Agent Wallet, local | Export PK from the [dashboard](https://q402.quackai.ai/dashboard) → Wallets → Danger Zone → Export private key. MetaMask untouched. |
 | **C** | (just an API key) | Agent Wallet, server-managed | No PK on the client. One-shot pays accept Trial or Multichain keys; recurring needs Multichain on every chain (BNB included). |
 
@@ -140,7 +140,7 @@ Q402_MAX_AMOUNT_PER_CALL=200
 # Q402_DISABLE_PRECHECK=0
 ```
 
-Then `chmod 600 ~/.q402/mcp.env` (Unix) and restart your client. That's the full configuration. **Heads up on the EIP-7702 side effect:** after your first live payment on a chain, your wallet will show 'Smart account' in MetaMask / OKX - that's the delegation Q402 uses for gasless settlement, reversible anytime via `q402_clear_delegation`.
+Then `chmod 600 ~/.q402/mcp.env` (Unix) and restart your client. That's the full configuration. **Heads up on the EIP-7702 side effect:** after your first live payment on a chain, your wallet will show 'Smart account' in MetaMask / OKX - that's the delegation Q402 uses for gasless settlement, reversible anytime via `q402_clear_delegation`. **Important for x402 users:** after EIP-7702 delegation is active, `q402_x402_fetch` cannot sign x402 payments until you call `q402_clear_delegation` (gasless on Base, reversible — the next `q402_pay` re-delegates automatically).
 
 ### Advanced - explicit env injection
 
@@ -243,7 +243,7 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 | `q402_redstone_trigger_list` | live mode | List the Agent Wallet's RedStone triggers + their state. |
 | `q402_redstone_trigger_cancel` | live mode | Permanently stop a RedStone trigger. |
 | **x402 (outbound)** | | |
-| `q402_x402_fetch` | live mode | Fetch any x402-gated URL and handle HTTP 402 automatically: validates Base USDC payment option, guards against excess spend, signs EIP-3009 TransferWithAuthorization, and retries with the correct payment header (PAYMENT-SIGNATURE for v2 servers, X-PAYMENT for v1 legacy). Non-402 responses pass through unchanged. |
+| `q402_x402_fetch` | live mode | Fetch any x402-gated URL and handle HTTP 402 automatically: validates Base USDC payment option, guards against excess spend, signs EIP-3009 TransferWithAuthorization, and retries with the correct payment header (PAYMENT-SIGNATURE for v2 servers, X-PAYMENT for v1 legacy). Non-402 responses pass through unchanged. Returns `status:"settled_no_delivery"` (`fundsMoved:true, retrySafe:false`) when a txHash in the response confirms funds moved but the seller returned an error. Returns `status:"settled_status_unknown"` (`fundsMovedUnknown:true, retrySafe:false`) when no settlement proof exists — funds may or may not have moved. Do NOT retry either outcome. |
 
 `q402_pay` + `q402_batch_pay` + `q402_bridge_send` + `q402_yield_deposit` + `q402_yield_withdraw` + `q402_stake` + `q402_unstake` + `q402_request_pay` require explicit in-chat confirmation. Batch confirmation = full batch, not per-row.
 
@@ -270,7 +270,17 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 
 Two-phase consent flow: the first call (without `consentToken`) returns `needs_confirmation` and a preview of the amount and recipient. Re-call with the same arguments plus the returned `consentToken` to authorize the payment.
 
-**Audit.** Every 402 attempt - settled or blocked by a guard - is written to the local audit log at `~/.q402/x402-audit.json` and surfaced in `q402_agent_spend_report`. These are local records on the agent's machine.
+**Result outcomes — read before summarizing to users.**
+
+| Outcome | Fields | Meaning |
+|---|---|---|
+| `success: true` | `body`, `paid: true`, `payTo`, `amountUsd` | Content delivered, payment settled. |
+| `success: false`, `needsConsent` set | `consentToken`, `preview` | No payment made. Re-call with `consentToken`. |
+| `success: false`, `status: "settled_no_delivery"` | `fundsMoved: true`, `retrySafe: false`, `recipient`, `amount`, `txHash`, `guidance` | **Funds confirmed left the wallet, content not delivered.** Settlement is proven by `txHash` from the response. The seller accepted payment but returned an error. Do NOT tell the user "the payment didn't go through" — funds moved. Do NOT retry — that would make a second payment. Surface `amount`, `recipient`, `txHash`, and `guidance` to the user so they can reconcile with the seller. |
+| `success: false`, `status: "settled_status_unknown"` | `fundsMovedUnknown: true`, `retrySafe: false`, `recipient`, `amount`, `txHash: null`, `guidance` | **Settlement unknown — funds may or may not have moved.** Payment header was sent but the response contained no settlement proof (no `txHash`). Do NOT assert that funds moved or didn't move. Do NOT retry with the same parameters — funds may have already moved. Surface `guidance` so the user can check their wallet balance and contact the seller. |
+| `success: false` (other) | `error` | Payment blocked or rejected before settlement. No funds moved. Safe to retry. |
+
+**Audit.** Every 402 attempt — settled, `settled_no_delivery`, `settled_status_unknown`, or blocked — is written to the local audit log at `~/.q402/x402-audit.json` and surfaced in `q402_agent_spend_report`. Both `settled_no_delivery` and `settled_status_unknown` outcomes count as spend in the report.
 
 **Minimum working example.**
 
@@ -285,6 +295,8 @@ Two-phase consent flow: the first call (without `consentToken`) returns `needs_c
 If the endpoint returns 402, the tool responds with `needs_confirmation` and a `consentToken`. Re-call with those same arguments plus the `consentToken` to authorize payment.
 
 **Requirements.** `Q402_ENABLE_REAL_PAYMENTS=1` plus a local signing key (`Q402_AGENTIC_PRIVATE_KEY` or `Q402_PRIVATE_KEY`). The signed authorization goes directly to the seller's facilitator endpoint; the Q402 relay is not involved in this path.
+
+**Prerequisite — delegation check.** `q402_x402_fetch` uses EIP-3009 signing, which is incompatible with an EIP-7702-delegated wallet. If you have previously called `q402_pay` on this wallet, it may be EIP-7702-delegated (shown as 'Smart account' in MetaMask / OKX). In that state, `q402_x402_fetch` will fail. Recovery: call `q402_clear_delegation` (gasless on Base, reversible). After clearing, `q402_x402_fetch` works again. The next `q402_pay` re-delegates automatically.
 
 ---
 

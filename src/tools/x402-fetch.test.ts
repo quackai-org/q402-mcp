@@ -886,3 +886,374 @@ describe("AC-9: v2 wire-format conformance", () => {
     }
   });
 });
+
+// ── settled_no_delivery: AC-2, AC-3, AC-9, AC-10 ─────────────────────────────
+//
+// Stub seller: first call returns 402, second (with payment header) returns 405.
+// This is the exact failure mode from the mainnet incident.
+
+describe("settled_no_delivery: payment accepted, seller returned non-2xx", () => {
+  const TEST_PK = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+
+  async function runSettledNoDelivery(opts: {
+    sellerStatus?: number;
+    sellerBody?: string;
+    xPaymentResponseHeader?: string;
+  } = {}) {
+    const sellerStatus = opts.sellerStatus ?? 405;
+    const sellerBody = opts.sellerBody ?? '{"detail":"Method Not Allowed"}';
+
+    process.env["Q402_ENABLE_REAL_PAYMENTS"] = "1";
+    process.env["Q402_AGENTIC_PRIVATE_KEY"] = TEST_PK;
+    _setDelegationCheck(async () => false);
+    resetSessionSpendUsd();
+
+    const { checkConsent } = await import("../consent.js");
+    const consentIntent = {
+      t: "x402_fetch",
+      url: "https://stub.example/paid",
+      method: "GET",
+      payTo: SELLER.toLowerCase(),
+      amountAtomic: "1000",      // $0.001 USDC
+      asset: BASE_USDC.toLowerCase(),
+      network: "base",
+    };
+    const { expected: token } = checkConsent(consentIntent, undefined);
+
+    const restore = stubFetch([
+      () => Promise.resolve(makeResponse(402, make402Body({ amount: "1000" }))),
+      () => {
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (opts.xPaymentResponseHeader) {
+          headers["x-payment-response"] = opts.xPaymentResponseHeader;
+        }
+        return Promise.resolve(new Response(sellerBody, { status: sellerStatus, headers }));
+      },
+    ]);
+
+    try {
+      return await runX402Fetch({
+        url: "https://stub.example/paid",
+        confirm: true,
+        consentToken: token,
+      });
+    } finally {
+      restore();
+      _setDelegationCheck(null);
+      delete process.env["Q402_ENABLE_REAL_PAYMENTS"];
+      delete process.env["Q402_AGENTIC_PRIVATE_KEY"];
+      resetSessionSpendUsd();
+    }
+  }
+
+  // settled_no_delivery: non-402 retry WITH X-PAYMENT-RESPONSE txHash
+
+  test("AC-2: 402->405 with txHash proof returns settled_no_delivery, fundsMoved:true", async () => {
+    const fakeTxHash = "0xf170b63c1cebd2331999bbcbf7d1deb18473a748ccffd348a76e66e270389a26";
+    const xPaymentResponse = Buffer.from(
+      JSON.stringify({ txHash: fakeTxHash, status: "confirmed" }),
+    ).toString("base64");
+    const result = await runSettledNoDelivery({ sellerStatus: 405, xPaymentResponseHeader: xPaymentResponse });
+
+    assert.strictEqual(result.success, false, "success must be false");
+    assert.strictEqual(result.status, "settled_no_delivery", "status must be settled_no_delivery");
+    assert.strictEqual(result.fundsMoved, true, "fundsMoved must be true");
+    assert.strictEqual(result.retrySafe, false, "retrySafe must be false");
+    assert.ok(result.recipient !== undefined, "recipient (payTo) must be present");
+    assert.ok(result.amount !== undefined, "amount must be present");
+    assert.ok(result.guidance !== undefined, "guidance must be present");
+    assert.ok(result.auditId !== undefined, "auditId must be set");
+    assert.strictEqual(result.statusCode, 405, "statusCode must reflect seller HTTP status");
+    assert.strictEqual(result.txHash, fakeTxHash, "txHash must be captured");
+    assert.ok(result.guidance!.includes(fakeTxHash), "guidance must include txHash");
+  });
+
+  test("AC-2: 402->500 with txHash proof returns settled_no_delivery", async () => {
+    const xPaymentResponse = Buffer.from(
+      JSON.stringify({ txHash: "0xabc123", status: "confirmed" }),
+    ).toString("base64");
+    const result = await runSettledNoDelivery({ sellerStatus: 500, sellerBody: '{"error":"internal"}', xPaymentResponseHeader: xPaymentResponse });
+    assert.strictEqual(result.status, "settled_no_delivery");
+    assert.strictEqual(result.fundsMoved, true);
+    assert.strictEqual(result.retrySafe, false);
+    assert.strictEqual(result.statusCode, 500);
+  });
+
+  // settled_status_unknown: non-402 retry WITHOUT X-PAYMENT-RESPONSE (no proof)
+
+  test("AC-5: 402->405 without txHash proof returns settled_status_unknown, fundsMovedUnknown:true", async () => {
+    const result = await runSettledNoDelivery({ sellerStatus: 405 });
+
+    assert.strictEqual(result.success, false, "success must be false");
+    assert.strictEqual(result.status, "settled_status_unknown", "status must be settled_status_unknown");
+    assert.strictEqual(result.fundsMovedUnknown, true, "fundsMovedUnknown must be true");
+    assert.strictEqual(result.fundsMoved, undefined, "fundsMoved must NOT be set — we cannot prove funds moved");
+    assert.strictEqual(result.txHash, null, "txHash must be null when no proof");
+    assert.strictEqual(result.retrySafe, false, "retrySafe must be false");
+    assert.ok(result.recipient !== undefined, "recipient must be present");
+    assert.ok(result.amount !== undefined, "amount must be present");
+    assert.ok(result.guidance !== undefined, "guidance must be present");
+    assert.ok(result.auditId !== undefined, "auditId must be set");
+  });
+
+  test("AC-5: 402->403 without txHash proof returns settled_status_unknown", async () => {
+    const result = await runSettledNoDelivery({ sellerStatus: 403 });
+    assert.strictEqual(result.status, "settled_status_unknown");
+    assert.strictEqual(result.fundsMovedUnknown, true);
+    assert.strictEqual(result.retrySafe, false);
+  });
+
+  test("AC-9: retrySafe is false for both settled_no_delivery and settled_status_unknown", async () => {
+    const noProof = await runSettledNoDelivery();
+    assert.strictEqual(noProof.retrySafe, false, "settled_status_unknown: retrySafe must be false");
+
+    const xPaymentResponse = Buffer.from(
+      JSON.stringify({ txHash: "0xabc", status: "confirmed" }),
+    ).toString("base64");
+    const withProof = await runSettledNoDelivery({ xPaymentResponseHeader: xPaymentResponse });
+    assert.strictEqual(withProof.retrySafe, false, "settled_no_delivery: retrySafe must be false");
+  });
+
+  test("AC-9: network error after payment header sent — settled_status_unknown, retrySafe:false", async () => {
+    process.env["Q402_ENABLE_REAL_PAYMENTS"] = "1";
+    process.env["Q402_AGENTIC_PRIVATE_KEY"] = TEST_PK;
+    _setDelegationCheck(async () => false);
+    resetSessionSpendUsd();
+
+    const { checkConsent } = await import("../consent.js");
+    const consentIntent = {
+      t: "x402_fetch",
+      url: "https://stub.example/paid",
+      method: "GET",
+      payTo: SELLER.toLowerCase(),
+      amountAtomic: "1000",
+      asset: BASE_USDC.toLowerCase(),
+      network: "base",
+    };
+    const { expected: token } = checkConsent(consentIntent, undefined);
+
+    const restore = stubFetch([
+      () => Promise.resolve(makeResponse(402, make402Body({ amount: "1000" }))),
+      () => Promise.reject(new Error("ECONNRESET")),
+    ]);
+
+    try {
+      const result = await runX402Fetch({
+        url: "https://stub.example/paid",
+        confirm: true,
+        consentToken: token,
+      });
+      assert.strictEqual(result.status, "settled_status_unknown", "network error must yield settled_status_unknown");
+      assert.strictEqual(result.retrySafe, false, "network error after payment header: retrySafe must be false");
+      assert.strictEqual(result.fundsMovedUnknown, true, "network error: fundsMovedUnknown must be true");
+    } finally {
+      restore();
+      _setDelegationCheck(null);
+      delete process.env["Q402_ENABLE_REAL_PAYMENTS"];
+      delete process.env["Q402_AGENTIC_PRIVATE_KEY"];
+      resetSessionSpendUsd();
+    }
+  });
+
+  test("AC-5: result is not a plain success:false — always has funds status indicator", async () => {
+    const result = await runSettledNoDelivery();
+    const hasFundsIndicator = result.fundsMoved === true || result.fundsMovedUnknown === true;
+    assert.ok(hasFundsIndicator, "must have fundsMoved or fundsMovedUnknown — not a plain failure");
+  });
+
+  test("AC-3: settled_no_delivery writes audit record with fundsMoved:true", async () => {
+    const auditPath = makeTmpAuditPath();
+    const { saveX402AuditRecord: saveAudit } = await import("./x402-audit-store.js");
+
+    const record = {
+      id: "x4_snd_test_001",
+      timestamp: new Date().toISOString(),
+      url: "https://stub.example/paid",
+      method: "GET",
+      payTo: SELLER,
+      asset: BASE_USDC,
+      network: "base",
+      amountAtomic: "1000",
+      amountUsd: "0.001000",
+      status: "settled_no_delivery" as const,
+      settlementStatusCode: 405,
+      responseExcerpt: '{"detail":"Method Not Allowed"}',
+      fundsMoved: true,
+      txHash: "0xf170b63c",
+    };
+    saveAudit(record, auditPath);
+
+    const all = listX402AuditRecords("all", auditPath);
+    assert.strictEqual(all.length, 1);
+    assert.strictEqual(all[0]?.status, "settled_no_delivery");
+    assert.strictEqual(all[0]?.fundsMoved, true);
+    assert.strictEqual(all[0]?.settlementStatusCode, 405);
+  });
+
+  test("AC-3: settled_status_unknown writes audit record with fundsMovedUnknown:true and txHash:null", async () => {
+    const auditPath = makeTmpAuditPath();
+    const { saveX402AuditRecord: saveAudit } = await import("./x402-audit-store.js");
+
+    const record = {
+      id: "x4_ssu_test_001",
+      timestamp: new Date().toISOString(),
+      url: "https://stub.example/paid",
+      method: "GET",
+      payTo: SELLER,
+      asset: BASE_USDC,
+      network: "base",
+      amountAtomic: "1000",
+      amountUsd: "0.001000",
+      status: "settled_status_unknown" as const,
+      settlementStatusCode: 405,
+      responseExcerpt: '{"detail":"Method Not Allowed"}',
+      fundsMovedUnknown: true,
+      txHash: null,
+    };
+    saveAudit(record, auditPath);
+
+    const all = listX402AuditRecords("all", auditPath);
+    assert.strictEqual(all.length, 1);
+    assert.strictEqual(all[0]?.status, "settled_status_unknown");
+    assert.strictEqual(all[0]?.fundsMovedUnknown, true);
+    assert.strictEqual(all[0]?.txHash, null);
+  });
+
+  test("AC-3: spend report counts both settled_no_delivery and settled_status_unknown as spend", async () => {
+    const auditPath = makeTmpAuditPath();
+    const { saveX402AuditRecord: saveAudit } = await import("./x402-audit-store.js");
+
+    saveAudit({
+      id: "x4_snd_report_001",
+      timestamp: new Date().toISOString(),
+      url: "https://stub.example/paid",
+      method: "GET",
+      payTo: SELLER,
+      asset: BASE_USDC,
+      network: "base",
+      amountAtomic: "1000",
+      amountUsd: "0.001000",
+      status: "settled_no_delivery",
+      fundsMoved: true,
+      txHash: "0xabc",
+    }, auditPath);
+
+    saveAudit({
+      id: "x4_ssu_report_001",
+      timestamp: new Date().toISOString(),
+      url: "https://stub.example/paid",
+      method: "GET",
+      payTo: SELLER,
+      asset: BASE_USDC,
+      network: "base",
+      amountAtomic: "1000",
+      amountUsd: "0.001000",
+      status: "settled_status_unknown",
+      fundsMovedUnknown: true,
+      txHash: null,
+    }, auditPath);
+
+    const { listX402AuditRecords: listRecords } = await import("./x402-audit-store.js");
+    const records = listRecords("all", auditPath);
+    const settled = records.filter(r => r.status === "settled" || r.status === "settled_no_delivery");
+    const fundsUnknown = records.filter(r => r.status === "settled_status_unknown");
+    const blocked = records.filter(
+      r => r.status !== "settled" && r.status !== "settled_no_delivery" && r.status !== "settled_status_unknown",
+    );
+    assert.strictEqual(settled.length, 1, "settled_no_delivery counts as confirmed settle");
+    assert.strictEqual(fundsUnknown.length, 1, "settled_status_unknown is a separate category");
+    assert.strictEqual(blocked.length, 0, "neither must be counted as blocked");
+    const totalUsd = [...settled, ...fundsUnknown].reduce((sum, r) => sum + parseFloat(r.amountUsd), 0);
+    assert.ok(Math.abs(totalUsd - 0.002) < 0.0001, `totalUsd should be 0.002, got ${totalUsd}`);
+  });
+
+  test("AC-10: guidance contains recipient, amount, and do-not-retry instruction (both outcomes)", async () => {
+    // settled_status_unknown (no txHash)
+    const result = await runSettledNoDelivery();
+    assert.ok(result.guidance !== undefined, "guidance must be present");
+    assert.ok(
+      result.guidance!.includes(SELLER) || result.guidance!.includes(SELLER.toLowerCase()),
+      `guidance must include recipient address: ${result.guidance}`,
+    );
+    assert.ok(result.guidance!.toLowerCase().includes("not"), `guidance must warn against retry: ${result.guidance}`);
+  });
+
+  test("AC-12: guidance includes /.well-known/x402.json self-check layer (settled_status_unknown)", async () => {
+    const result = await runSettledNoDelivery({ sellerStatus: 405 });
+    assert.ok(result.guidance !== undefined, "guidance must be present");
+    assert.ok(
+      result.guidance!.includes("/.well-known/x402.json"),
+      `guidance must point to /.well-known/x402.json for request shape self-check: ${result.guidance}`,
+    );
+    assert.ok(
+      result.guidance!.toLowerCase().includes("not"),
+      `guidance must still warn against retry with same parameters: ${result.guidance}`,
+    );
+  });
+
+  test("AC-12: guidance includes /.well-known/x402.json self-check layer (settled_no_delivery with txHash)", async () => {
+    const fakeTxHash = "0xabc123def456abc123def456abc123def456abc123def456abc123def456abc1";
+    const xPaymentResponse = Buffer.from(
+      JSON.stringify({ txHash: fakeTxHash, status: "confirmed" }),
+    ).toString("base64");
+    const result = await runSettledNoDelivery({ sellerStatus: 405, xPaymentResponseHeader: xPaymentResponse });
+    assert.ok(result.guidance !== undefined, "guidance must be present");
+    assert.ok(
+      result.guidance!.includes("/.well-known/x402.json"),
+      `guidance must point to /.well-known/x402.json for request shape self-check: ${result.guidance}`,
+    );
+    assert.ok(
+      result.guidance!.toLowerCase().includes("not"),
+      `guidance must still warn against retry with same parameters: ${result.guidance}`,
+    );
+    assert.ok(
+      result.guidance!.includes(fakeTxHash),
+      `guidance must still include txHash: ${result.guidance}`,
+    );
+  });
+
+  test("AC-1 regression: retry 402 is NOT settled_no_delivery (payment rejected, funds did not move)", async () => {
+    process.env["Q402_ENABLE_REAL_PAYMENTS"] = "1";
+    process.env["Q402_AGENTIC_PRIVATE_KEY"] = TEST_PK;
+    _setDelegationCheck(async () => false);
+    resetSessionSpendUsd();
+
+    const { checkConsent } = await import("../consent.js");
+    const consentIntent = {
+      t: "x402_fetch",
+      url: "https://stub.example/rejected",
+      method: "GET",
+      payTo: SELLER.toLowerCase(),
+      amountAtomic: "1000",
+      asset: BASE_USDC.toLowerCase(),
+      network: "base",
+    };
+    const { expected: token } = checkConsent(consentIntent, undefined);
+
+    const restore = stubFetch([
+      () => Promise.resolve(makeResponse(402, make402Body({ amount: "1000" }))),
+      () => Promise.resolve(makeResponse(402, '{"error":"payment_rejected","detail":"Invalid signature"}')),
+    ]);
+
+    try {
+      const result = await runX402Fetch({
+        url: "https://stub.example/rejected",
+        confirm: true,
+        consentToken: token,
+      });
+      assert.ok(
+        result.status !== "settled_no_delivery" && result.status !== "settled_status_unknown",
+        "retry 402 must NOT have a settled status",
+      );
+      assert.strictEqual(result.fundsMoved, false, "fundsMoved must be false for retry 402");
+      assert.strictEqual(result.retrySafe, true, "retrySafe must be true — funds did not move");
+      assert.strictEqual(result.success, false);
+    } finally {
+      restore();
+      _setDelegationCheck(null);
+      delete process.env["Q402_ENABLE_REAL_PAYMENTS"];
+      delete process.env["Q402_AGENTIC_PRIVATE_KEY"];
+      resetSessionSpendUsd();
+    }
+  });
+});
