@@ -120,6 +120,41 @@ Add `"base"` to the server-side `ESCROW_ENABLED_CHAINS` env var (or equivalent c
 
 ---
 
+## Step 8 — REQUIRED: Runtime verification before any public announcement
+
+**This step is a hard gate. Public announcement of Base mainnet escrow availability is BLOCKED until both checks below pass and evidence is pasted onto the parent issue.**
+
+After mainnet deploy and server config are live (Steps 5–7 complete), a human operator must verify the following before any external communication:
+
+### 8a — Verify `ESCROW_ENABLED=1` is in effect
+
+Confirm the environment variable (or equivalent server config flag) is active in the target production environment. Check the running process / config dashboard — do not rely on the deploy manifest alone.
+
+### 8b — Verify all 6 escrow tools reach the server on `chain="base"`
+
+Make a real call to the server `/escrow/info` endpoint for `chain=base` and confirm it returns the base mainnet config (vault address, lockImpl address, tokens) rather than a client-side rejection or "not deployed" error:
+
+```bash
+curl -s "https://q402.quackai.ai/api/escrow/info?chain=base" | jq .
+# Expected: JSON object with vault, lockImpl, tokens, chainId=8453
+# Failure: {"error": "escrow not live on base"} or HTTP 4xx/5xx
+```
+
+Then exercise each of the 6 escrow tools via the MCP server against `chain="base"` (read-only or sandbox calls are sufficient — the goal is to confirm the server routing, not to move funds):
+
+1. `q402_escrow_create` — call with `chain="base"`, confirm no client-side rejection
+2. `q402_escrow_status` — call with a real or sandbox escrowId from step 1
+3. `q402_escrow_lock` — confirm tool is reachable (do NOT fund with real amounts; use a sandbox/dry-run if available)
+4. `q402_escrow_release` — confirm tool is reachable
+5. `q402_escrow_refund` — confirm tool is reachable
+6. `q402_escrow_dispute` — confirm tool is reachable
+
+### Evidence required
+
+Paste the `/escrow/info?chain=base` response (or equivalent call logs) and a brief confirmation that all 6 tools reached the server without a "not deployed" or "enum not wired" rejection onto the parent issue. Only after that evidence is posted may the deploy be announced externally.
+
+---
+
 ## Rollback
 
 If the vault address is wrong or contracts misbehave:
@@ -138,4 +173,5 @@ If the vault address is wrong or contracts misbehave:
 - [ ] Server config updated with Base addresses (AC-2)
 - [ ] Smoke test: create → lock → release completed with real tx links
 - [ ] `ESCROW_ENABLED_CHAINS` includes `"base"`
+- [ ] **[GATE] Step 8 runtime verification complete: `/escrow/info?chain=base` returns base config; all 6 escrow tools callable; evidence pasted on parent issue**
 - [ ] `company-brain/quack-ai/kb/product-canon.md` updated (ops owner action)
