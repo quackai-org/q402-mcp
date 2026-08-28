@@ -1,0 +1,102 @@
+name: Publish to npm
+
+# Manual-only trigger — the human approval gate lives here.
+# Never add push: or release: triggers to this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (must match package.json version exactly, e.g. 0.11.25)'
+        required: true
+        type: string
+
+permissions:
+  contents: write   # push the version tag
+  id-token: write   # npm Trusted Publishing (OIDC exchange — no npm token in secrets)
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      # AC-3: input version must match package.json
+      - name: Verify input version matches package.json
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          INPUT_VERSION="${{ github.event.inputs.version }}"
+          if [ "$PKG_VERSION" != "$INPUT_VERSION" ]; then
+            echo "ERROR: input version '$INPUT_VERSION' does not match package.json version '$PKG_VERSION'" >&2
+            exit 1
+          fi
+          echo "Version check passed: $PKG_VERSION"
+
+      # AC-4: all five publishing surfaces must be consistent
+      #   1. workflow_dispatch input (anchor)
+      #   2. package.json  .version
+      #   3. server.json   .version  (top-level)
+      #   4. server.json   .packages[0].version
+      #   5. .codex-plugin/plugin.json  .version
+      - name: Verify version consistency across all publishing surfaces
+        run: |
+          ANCHOR="${{ github.event.inputs.version }}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          SERVER_VERSION=$(node -p "require('./server.json').version")
+          SERVER_PKG_VERSION=$(node -p "require('./server.json').packages[0].version")
+          CODEX_VERSION=$(node -p "require('./.codex-plugin/plugin.json').version")
+
+          FAIL=0
+          check() {
+            local label="$1" value="$2"
+            if [ "$value" != "$ANCHOR" ]; then
+              echo "ERROR: $label '$value' != expected '$ANCHOR'" >&2
+              FAIL=1
+            fi
+          }
+
+          check "package.json .version"                      "$PKG_VERSION"
+          check "server.json .version (top-level)"           "$SERVER_VERSION"
+          check "server.json .packages[0].version"           "$SERVER_PKG_VERSION"
+          check ".codex-plugin/plugin.json .version"         "$CODEX_VERSION"
+
+          if [ "$FAIL" != "0" ]; then
+            exit 1
+          fi
+          echo "All publishing surfaces consistent: $ANCHOR"
+
+      # AC-5: full build chain — no continue-on-error anywhere
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      # Publish via npm Trusted Publishing (OIDC).
+      # Requires the repository to be registered as a trusted publisher on
+      # npmjs.com BEFORE this step will succeed — see RELEASING.md.
+      # No NODE_AUTH_TOKEN from secrets is used; npm exchanges the GitHub
+      # OIDC token automatically.
+      # Reference: https://docs.npmjs.com/generating-provenance-statements
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+
+      # AC-6: tag the commit that was just published
+      - name: Create and push version tag
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "v${VERSION}"
+          git push origin "v${VERSION}"
