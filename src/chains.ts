@@ -232,7 +232,7 @@ export const CHAIN_CONFIG: Record<ChainKey, ChainConfig> = {
     name: "Base",
     chainId: 8453,
     domainName: "Q402 Base",
-    implContract: "0x2fb2B2D110b6c5664e701666B3741240242bf350",
+    implContract: "0xcb1C912D3849857754A0aE8CAA11b72f5a96142E",
     gasToken: "ETH",
     explorer: "https://basescan.org",
     // Native Circle USDC + bridged Tether USD on Base, both 6 decimals.
