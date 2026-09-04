@@ -23,7 +23,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          node-version: '22.x'
           registry-url: 'https://registry.npmjs.org'
 
       # AC-3: input version must match package.json
@@ -94,7 +94,7 @@ jobs:
       # sees an unauthenticated publish and rejects it with 404.
       - name: Upgrade npm for trusted publishing (OIDC)
         run: |
-          npm install -g npm@latest
+          npm install -g npm@^11.5.1
           npm --version
 
       - name: Publish to npm
