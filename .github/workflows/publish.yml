@@ -89,6 +89,14 @@ jobs:
       # No NODE_AUTH_TOKEN from secrets is used; npm exchanges the GitHub
       # OIDC token automatically.
       # Reference: https://docs.npmjs.com/generating-provenance-statements
+      # npm >= 11.5 is required for trusted publishing (OIDC). The runner's
+      # bundled npm 10.x skips the OIDC exchange entirely, so the registry
+      # sees an unauthenticated publish and rejects it with 404.
+      - name: Upgrade npm for trusted publishing (OIDC)
+        run: |
+          npm install -g npm@latest
+          npm --version
+
       - name: Publish to npm
         run: npm publish --provenance --access public
 
