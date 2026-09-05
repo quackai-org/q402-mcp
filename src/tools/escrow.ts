@@ -10,10 +10,8 @@
  * fund-affecting field is server-derived from the stored record + on-chain
  * config; the EIP-712 signatures are the sole authority.
  *
- * Live on chains with a deployed vault. For the current list, call GET
- * /api/escrow/chains (the server enforces availability on every request and
- * returns an error for any undeployed chain). Note: base mainnet vault is not
- * yet deployed. SANDBOX-adjacent note:
+ * Chain availability is served by GET /api/escrow/chains — the server
+ * enforces on every request. SANDBOX-adjacent note:
  * unlike q402_pay there is no fake path - a lock/release with a live key moves
  * real funds, so ALWAYS confirm with the user first (confirm:true).
  */
@@ -239,10 +237,10 @@ export const ESCROW_CREATE_TOOL = {
   description:
     "Create a Q402 Gasless Escrow (non-custodial, EIP-7702). Publishes a `pending` record and returns an escrowId - MOVES NO FUNDS. " +
     "Pass `walletId` (one of YOUR Agent Wallets) to make that wallet the buyer/funder: the server then signs the gasless lock on its behalf (no local key), so q402_escrow_lock funds it straight away. Omit walletId to make yourself (the apiKey owner) the buyer, funded with your own key. " +
-    "Live on chains with a deployed vault — call GET /api/escrow/chains for the current list; the server enforces availability on every request. Note: base mainnet vault is not yet deployed. " +
+    "Chain availability is served by GET /api/escrow/chains — call q402_escrow_create with any enabled chain; the server enforces on every request. " +
     "Optional arbiter enables disputes; without one it's release-or-timeout-refund only. Releasing an Agent-Wallet escrow needs the owner's approval in the dashboard.",
   inputSchema: { type: "object" as const, properties: {
-    chain: { type: "string", enum: CHAIN_ENUM, description: "Chain for the escrow. For which values have a deployed vault, call GET /api/escrow/chains — the server enforces availability and returns an error for any undeployed chain. Note: base mainnet vault is not yet deployed." },
+    chain: { type: "string", enum: CHAIN_ENUM, description: "Chain for the escrow. Call GET /api/escrow/chains for the current list of enabled chains — the server enforces availability and returns an error for any unsupported chain." },
     token: { type: "string", enum: ["USDC", "USDT"] },
     seller: { type: "string", description: "Address paid on release." },
     amount: { type: "string", description: 'Human-readable decimal, e.g. "5.00".' },
@@ -254,7 +252,7 @@ export const ESCROW_CREATE_TOOL = {
 
 export const ESCROW_STATUS_TOOL = {
   name: "q402_escrow_status",
-  description: "Read a Q402 escrow's current state (pending/open/disputed/released/refunded/expired) + parties, amount, and tx hashes. Works for escrows on any chain with a deployed vault (see GET /api/escrow/chains for the current list; base mainnet vault is not yet deployed).",
+  description: "Read a Q402 escrow's current state (pending/open/disputed/released/refunded/expired) + parties, amount, and tx hashes. Works for escrows on any enabled chain — see GET /api/escrow/chains for the current list.",
   inputSchema: { type: "object" as const, properties: idProp, required: ["escrowId"], additionalProperties: false },
 } as const;
 
@@ -263,25 +261,25 @@ export const ESCROW_LOCK_TOOL = {
   description:
     "Fund a pending escrow: the BUYER gaslessly locks the amount into the vault via EIP-7702 (Q402 relays + sponsors gas). MOVES REAL FUNDS. " +
     "If the escrow is funded by an Agent Wallet (created with walletId), the server signs it for you - no local key needed. Otherwise requires Q402_PRIVATE_KEY = the buyer's key. " +
-    "Live on chains with a deployed vault (see GET /api/escrow/chains; base mainnet vault is not yet deployed). " +
+    "Chain availability is served by GET /api/escrow/chains — the server enforces on every request. " +
     "ALWAYS confirm the exact amount/seller/chain with the user before calling (confirm:true).",
   inputSchema: { type: "object" as const, properties: { ...idProp, ...confirmProp }, required: ["escrowId", "confirm"], additionalProperties: false },
 } as const;
 
 export const ESCROW_RELEASE_TOOL = {
   name: "q402_escrow_release",
-  description: "BUYER releases a locked escrow to the SELLER (buyer-signed, gasless). MOVES REAL FUNDS irreversibly. Live on chains with a deployed vault (see GET /api/escrow/chains; base mainnet vault is not yet deployed). Confirm with the user first (confirm:true).",
+  description: "BUYER releases a locked escrow to the SELLER (buyer-signed, gasless). MOVES REAL FUNDS irreversibly. Chain availability is served by GET /api/escrow/chains. Confirm with the user first (confirm:true).",
   inputSchema: { type: "object" as const, properties: { ...idProp, ...confirmProp }, required: ["escrowId", "confirm"], additionalProperties: false },
 } as const;
 
 export const ESCROW_REFUND_TOOL = {
   name: "q402_escrow_refund",
-  description: "Permissionlessly refund a locked escrow to the BUYER - only valid AFTER the release deadline (or, if disputed, after the arbiter resolve window). Live on chains with a deployed vault (see GET /api/escrow/chains; base mainnet vault is not yet deployed). Confirm with the user first (confirm:true).",
+  description: "Permissionlessly refund a locked escrow to the BUYER - only valid AFTER the release deadline (or, if disputed, after the arbiter resolve window). Chain availability is served by GET /api/escrow/chains. Confirm with the user first (confirm:true).",
   inputSchema: { type: "object" as const, properties: { ...idProp, ...confirmProp }, required: ["escrowId", "confirm"], additionalProperties: false },
 } as const;
 
 export const ESCROW_DISPUTE_TOOL = {
   name: "q402_escrow_dispute",
-  description: "A party (buyer or seller) disputes an open escrow (requires the escrow named an arbiter, before the release deadline). The arbiter then resolves off-tool. Live on chains with a deployed vault (see GET /api/escrow/chains; base mainnet vault is not yet deployed). Confirm with the user first (confirm:true).",
+  description: "A party (buyer or seller) disputes an open escrow (requires the escrow named an arbiter, before the release deadline). The arbiter then resolves off-tool. Chain availability is served by GET /api/escrow/chains. Confirm with the user first (confirm:true).",
   inputSchema: { type: "object" as const, properties: { ...idProp, ...confirmProp }, required: ["escrowId", "confirm"], additionalProperties: false },
 } as const;
