@@ -1,6 +1,6 @@
 {
   "name": "@quackai/q402-mcp",
-  "version": "0.11.26",
+  "version": "0.11.27",
   "description": "MCP server for Q402. Gasless USDC/USDT/RLUSD/Q payments on 12 EVM chains (USDG on Robinhood Chain), Q402 Yield (gasless supply and withdraw into Aave, Lista, and Morpho lending vaults), gasless non-custodial escrow (create, fund, release, refund, dispute), Q staking, a Chainlink CCIP USDC bridge on the eth/avax/arbitrum triangle, RedStone NAV/price triggers (autonomous gasless payout on a feed crossing), an x402 client (Base) for direct payment to any x402-enabled API, and read-only treasury Memory (spend summaries, vendor history, per-agent spend reports). 46 tools, callable from Claude (Desktop / Code), OpenAI Codex CLI, and any other Model Context Protocol client.",
   "mcpName": "io.github.quackai-org/q402-mcp",
   "keywords": [
@@ -51,7 +51,7 @@
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run lint && npm run build",
     "start": "node dist/index.js",
-    "test": "tsup --config tsup.test.config.ts && node scripts/fix-test-imports.cjs && node --import ./scripts/test-setup.mjs --test dist-test/config.test.js dist-test/travala/travala.test.js dist-test/travala/live-adapter.test.js dist-test/sandbox-receipt.test.js dist-test/tools/x402-fetch.test.js dist-test/tools/guards.test.js dist-test/tools/delegation-selfheal.test.js dist-test/tools/precheck.test.js"
+    "test": "tsup --config tsup.test.config.ts && node scripts/fix-test-imports.cjs && node --import ./scripts/test-setup.mjs --test dist-test/config.test.js dist-test/travala/travala.test.js dist-test/travala/live-adapter.test.js dist-test/sandbox-receipt.test.js dist-test/tools/x402-fetch.test.js dist-test/tools/guards.test.js dist-test/tools/delegation-selfheal.test.js dist-test/tools/precheck.test.js dist-test/tools/doctor.test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
