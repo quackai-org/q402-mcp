@@ -283,3 +283,4 @@ export const ESCROW_DISPUTE_TOOL = {
   description: "A party (buyer or seller) disputes an open escrow (requires the escrow named an arbiter, before the release deadline). The arbiter then resolves off-tool. Chain availability is served by GET /api/escrow/chains. Confirm with the user first (confirm:true).",
   inputSchema: { type: "object" as const, properties: { ...idProp, ...confirmProp }, required: ["escrowId", "confirm"], additionalProperties: false },
 } as const;
+// probe: escrow vault is not yet deployed on this chain
