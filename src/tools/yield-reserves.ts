@@ -26,7 +26,7 @@ export const YIELD_RESERVES_TOOL = {
     "Returns each market's protocol, chain, asset, asset address, position token, market address, " +
     "and current supply APY (shown as a %). No auth required and no funds move - this is purely a " +
     "preview of available yield. " +
-    "Reads the curated lending markets on BNB Chain, plus Base when a curated vault is configured; " +
+    "Reads the curated lending markets on BNB Chain, plus Base when a curated vault is configured; " + // chain-copy-allow: yield market chains match the hardcoded inputSchema enum ["bnb","base"]; this is a lending vault description, not an escrow vault claim
     "each market reports its own protocol/venue. " +
     "Deposit/withdraw (q402_yield_deposit / q402_yield_withdraw) cover both: 'bnb' (USDC/USDT) and 'base' (USDC only). " +
     "Pass an optional `chain` to filter; omit it to see every supported chain. Use this whenever " +
