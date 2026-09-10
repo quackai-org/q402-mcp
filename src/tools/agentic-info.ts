@@ -19,7 +19,8 @@
  */
 
 import { z } from "zod";
-import { CONFIG } from "../config.js";
+import { Wallet } from "ethers";
+import { CONFIG, isValidPrivateKey } from "../config.js";
 
 export const AgenticInfoInputSchema = z.object({
   walletId: z
@@ -115,6 +116,19 @@ export interface AgenticInfoSummary {
   setupHint?: string;
   /** Echoes the dashboard URL so the AI can offer a clickable next step. */
   dashboardUrl: string;
+  /**
+   * Non-null when the locally-configured wallet address (from
+   * Q402_AGENTIC_PRIVATE_KEY or Q402_AGENT_WALLET_ADDRESS) does not match
+   * this API key's server-side default Agent Wallet. Null = no mismatch or
+   * no local wallet configured. The AI should surface this as a prominent
+   * warning because a mismatched key causes escrow funding to be silently
+   * rejected ("walletId is not one of your active Agent Wallets").
+   */
+  walletMismatch: {
+    localAddress: string;
+    serverAddress: string;
+    warning: string;
+  } | null;
 }
 
 interface WalletJson {
@@ -200,6 +214,7 @@ export async function runAgenticInfo(input: AgenticInfoInput = {}): Promise<Agen
       erc8004AgentId: null,
       scan8004Url: null,
       reputation: null,
+      walletMismatch: null,
       dashboardUrl,
       setupHint:
         "No live Q402 API key configured. Run q402_doctor to set one up, or " +
@@ -255,6 +270,7 @@ export async function runAgenticInfo(input: AgenticInfoInput = {}): Promise<Agen
       erc8004AgentId: null,
       scan8004Url: null,
       reputation: null,
+      walletMismatch: null,
       dashboardUrl,
       setupHint:
         fetchError === "endpoint_not_deployed"
@@ -274,6 +290,36 @@ export async function runAgenticInfo(input: AgenticInfoInput = {}): Promise<Agen
   // address for forward-compat with older servers.
   const resolvedWalletId =
     typeof wallet.walletId === "string" ? wallet.walletId : wallet.address.toLowerCase();
+
+  // Wallet mismatch check: compare locally-configured wallet address with server's
+  // default Agent Wallet. A mismatch means the user rotated their API key and the
+  // new key's server-managed wallet is different — escrow funding will silently fail.
+  let walletMismatch: AgenticInfoSummary["walletMismatch"] = null;
+  {
+    const serverAddress = wallet.address.toLowerCase();
+    let localAddress: string | null = null;
+    if (isValidPrivateKey(CONFIG.agenticPrivateKey)) {
+      localAddress = new Wallet(CONFIG.agenticPrivateKey!).address.toLowerCase();
+    } else if (CONFIG.walletId) {
+      localAddress = CONFIG.walletId.toLowerCase();
+    }
+    if (localAddress && localAddress !== serverAddress) {
+      const localLabel = isValidPrivateKey(CONFIG.agenticPrivateKey)
+        ? `Q402_AGENTIC_PRIVATE_KEY derives address ${localAddress}`
+        : `Q402_AGENT_WALLET_ADDRESS is set to ${localAddress}`;
+      walletMismatch = {
+        localAddress,
+        serverAddress,
+        warning:
+          `WALLET MISMATCH: ${localLabel}, but this API key's default Agent Wallet is ` +
+          `${serverAddress}. Funds in ${localAddress} cannot reach the server-managed escrow ` +
+          `flow for this key; the local-signing path (agentic-local/eoa) is unaffected. ` +
+          `To resolve: (1) transfer funds gaslessly from ${localAddress} to ${serverAddress} ` +
+          `(current key's default wallet), or (2) switch back to the API key originally ` +
+          `paired with ${localAddress}.`,
+      };
+    }
+  }
 
   // Per-chain breakdown: keep only chains that hold funds (totalUsd > 0),
   // richest first, so the agent sees WHERE the money is. USD-pegged, so the
@@ -309,6 +355,7 @@ export async function runAgenticInfo(input: AgenticInfoInput = {}): Promise<Agen
     erc8004AgentId: wallet.erc8004AgentId,
     scan8004Url: scan8004UrlFor(wallet.erc8004AgentId),
     reputation,
+    walletMismatch,
     dashboardUrl,
     setupHint: wallet.deletedAt
       ? "This Agent Wallet is archived and pending hard-delete. " +

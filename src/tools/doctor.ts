@@ -53,6 +53,61 @@ import {
 import { CHAIN_KEYS }     from "../chains.js";
 import { PACKAGE_NAME, PACKAGE_VERSION } from "../version.js";
 
+/**
+ * Check whether the locally-configured agentic wallet address (derived from
+ * Q402_AGENTIC_PRIVATE_KEY or taken from Q402_AGENT_WALLET_ADDRESS) matches
+ * the server's default Agent Wallet for the given API key.
+ *
+ * Degraded check: server exposes a single default wallet per key via
+ * info-by-key, not a full active-wallet list. If local ≠ server default →
+ * warn. Returns a warning string on mismatch, null otherwise.
+ * Never throws — network errors are silently swallowed so doctor stays usable.
+ */
+export async function detectWalletMismatch(
+  agenticPrivateKey: string | null,
+  walletId: string | null,
+  apiKey: string | null,
+  relayBaseUrl: string,
+): Promise<string | null> {
+  if (!apiKey || !apiKey.startsWith("q402_live_")) return null;
+
+  let localAddress: string | null = null;
+  if (isValidPrivateKey(agenticPrivateKey)) {
+    localAddress = new Wallet(agenticPrivateKey!).address.toLowerCase();
+  } else if (walletId) {
+    localAddress = walletId.toLowerCase();
+  }
+  if (!localAddress) return null;
+
+  try {
+    const res = await fetch(`${relayBaseUrl}/wallet/agentic/info-by-key`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ apiKey }),
+      signal:  AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { wallet?: { address: string } };
+    const serverAddress = data.wallet?.address?.toLowerCase();
+    if (!serverAddress) return null;
+    if (localAddress === serverAddress) return null;
+
+    const localLabel = isValidPrivateKey(agenticPrivateKey)
+      ? `Q402_AGENTIC_PRIVATE_KEY derives address ${localAddress}`
+      : `Q402_AGENT_WALLET_ADDRESS is set to ${localAddress}`;
+    return (
+      `WALLET MISMATCH: ${localLabel}, but this API key's default Agent Wallet is ` +
+      `${serverAddress}. Funds in ${localAddress} cannot reach the server-managed escrow ` +
+      `flow for this key; the local-signing path (agentic-local/eoa) is unaffected. ` +
+      `To resolve: (1) transfer funds gaslessly from ${localAddress} to ${serverAddress} ` +
+      `(current key's default wallet), or (2) switch back to the API key that was originally ` +
+      `paired with ${localAddress}.`
+    );
+  } catch {
+    return null;
+  }
+}
+
 export const DoctorInputSchema = z.object({});
 export type  DoctorInput = z.infer<typeof DoctorInputSchema>;
 
@@ -948,9 +1003,14 @@ export async function runDoctor(): Promise<DoctorReport> {
   // verify gets a response (even an invalid-key 200), the relay is
   // demonstrably reachable. The extra ping was burning a 3rd /keys/verify
   // call against a 20/min IP cap that fast-iterating users were tripping.
-  const [keys, delegation] = await Promise.all([
+  // Active live key for mismatch check — same selection used for verification.
+  const activeLiveKey =
+    verifyTargets.find(t => t.key.startsWith("q402_live_"))?.key ?? null;
+
+  const [keys, delegation, walletMismatchWarning] = await Promise.all([
     Promise.all(verifyTargets.map(t => verifyOneKey(t.scope, t.envVar, t.key))),
     walletAddress ? fetchDelegation(walletAddress) : Promise.resolve<DelegationState[] | undefined>(undefined),
+    detectWalletMismatch(CONFIG.agenticPrivateKey, CONFIG.walletId, activeLiveKey, CONFIG.relayBaseUrl),
   ]);
   // Derive a relay snapshot from the verify responses we already have.
   // If even one verify returned a response (k.error doesn't pattern-match
@@ -1011,6 +1071,10 @@ export async function runDoctor(): Promise<DoctorReport> {
       `Q402 relay at ${relay.url} is unreachable. ` +
       "Check your network or override with Q402_RELAY_BASE_URL if you self-host.",
     );
+  }
+
+  if (walletMismatchWarning) {
+    warnings.push(walletMismatchWarning);
   }
 
   const ready = warnings.length === 0 && keys.some(k => k.valid);
