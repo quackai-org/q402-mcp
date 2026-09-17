@@ -202,6 +202,11 @@ import {
   X402FetchInputSchema,
   runX402Fetch,
 } from "./tools/x402-fetch.js";
+import {
+  GOVERNANCE_ANALYZE_TOOL,
+  GovernanceAnalyzeInputSchema,
+  runGovernanceAnalyze,
+} from "./tools/governance-analyze.js";
 
 function jsonText(value: unknown): { type: "text"; text: string } {
   return { type: "text", text: JSON.stringify(value, null, 2) };
@@ -290,6 +295,8 @@ async function main(): Promise<void> {
       // Generic x402 client — fetches any URL and handles HTTP 402 payment-required
       // responses automatically (EIP-3009 Base USDC only, buyer-side only, no relay).
       X402_FETCH_TOOL,
+      // Semantic wrapper: paid governance proposal analysis via x402.
+      GOVERNANCE_ANALYZE_TOOL,
     ],
   }));
 
@@ -498,6 +505,10 @@ async function main(): Promise<void> {
         case "q402_x402_fetch": {
           const parsed = X402FetchInputSchema.parse(args ?? {});
           return { content: [jsonText(await runX402Fetch(parsed))] };
+        }
+        case "q402_governance_analyze": {
+          const parsed = GovernanceAnalyzeInputSchema.parse(args ?? {});
+          return { content: [jsonText(await runGovernanceAnalyze(parsed))] };
         }
         default:
           return {

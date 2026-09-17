@@ -7,6 +7,7 @@ export default defineConfig({
     "src/travala/live-adapter.test.ts",
     "src/sandbox-receipt.test.ts",
     "src/tools/x402-fetch.test.ts",
+    "src/tools/governance-analyze.test.ts",
     "src/tools/guards.test.ts",
     "src/tools/delegation-selfheal.test.ts",
     "src/tools/precheck.test.ts",
