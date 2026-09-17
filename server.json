@@ -6,12 +6,12 @@
     "url": "https://github.com/quackai-org/q402-mcp",
     "source": "github"
   },
-  "version": "0.11.27",
+  "version": "0.11.28",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@quackai/q402-mcp",
-      "version": "0.11.27",
+      "version": "0.11.28",
       "transport": {
         "type": "stdio"
       },
