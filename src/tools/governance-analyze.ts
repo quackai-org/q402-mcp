@@ -18,7 +18,7 @@ export const GovernanceAnalyzeInputSchema = z.object({
     "Mutually exclusive with proposalId and proposalText.",
   ),
   dao:          z.string().optional().describe(
-    "DAO identifier (e.g. \"moonwell\", \"aave\"). Optional — inferred from url when provided; " +
+    "DAO identifier (e.g. \"moonwell\", \"aave\"). Optional, inferred from url when provided; " +
     "defaults to \"snapshot\" when only proposalId is given.",
   ),
   proposalId:   z.string().optional().describe("On-chain proposal ID or Snapshot ID."),
@@ -133,10 +133,10 @@ function validateInput(input: GovernanceAnalyzeInput): string | null {
     return "Must provide one of: url (Snapshot proposal link or 0x ID), proposalText, or proposalId.";
   }
   if ([hasUrl, hasProposalText, hasProposalId].filter(Boolean).length > 1) {
-    return "url, proposalText, and proposalId are mutually exclusive — provide exactly one.";
+    return "url, proposalText, and proposalId are mutually exclusive: provide exactly one.";
   }
   if (input.weights !== undefined && input.persona !== undefined) {
-    return "weights and persona are mutually exclusive — provide one or neither, not both.";
+    return "weights and persona are mutually exclusive: provide one or neither, not both.";
   }
   return null;
 }
@@ -225,7 +225,7 @@ export async function runGovernanceAnalyze(
     if (fetchResult.needsConsent) {
       const title   = resolvedProposalId ? await fetchProposalTitle(resolvedProposalId) : null;
       const subject = title ? `"${title}"` : "this governance proposal";
-      const preview = `Analyze ${subject} — $0.05 USDC. Confirm to start the analysis.`;
+      const preview = `Analyze ${subject}: $0.05 USDC. Confirm to start the analysis.`;
       return {
         success: false,
         needsConsent: {
@@ -290,7 +290,7 @@ const TOOL_DESCRIPTION =
   "Paid governance proposal analysis. Paste a Snapshot link (or raw text) and optionally describe " +
   "your priority in plain language; get a vote recommendation (For / Against / Abstain), five " +
   "dimension ratings, and the reasoning. $0.05 USDC per call on Base via x402.\n\n" +
-  "INPUT — provide exactly one of:\n" +
+  "INPUT: provide exactly one of:\n" +
   "  • url: a snapshot.org or snapshot.box proposal link, or a bare 0x proposal ID (64 hex chars).\n" +
   "  • proposalText: raw proposal body text.\n" +
   "  • proposalId: a Snapshot proposal ID you already have (dao defaults to \"snapshot\" when omitted).\n" +
@@ -312,12 +312,12 @@ export const GOVERNANCE_ANALYZE_TOOL = {
         type: "string",
         description:
           "Snapshot proposal URL (snapshot.org or snapshot.box) or bare 0x proposal ID. " +
-          "Use this when the user pastes a link — do not ask for proposal ID or dao.",
+          "Use this when the user pastes a link; do not ask for proposal ID or dao.",
       },
       dao: {
         type: "string",
         description:
-          "DAO identifier (e.g. \"moonwell\", \"aave\"). Optional — inferred from url when provided; " +
+          "DAO identifier (e.g. \"moonwell\", \"aave\"). Optional, inferred from url when provided; " +
           "defaults to \"snapshot\" when only proposalId is given.",
       },
       proposalId: {
