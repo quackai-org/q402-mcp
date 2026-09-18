@@ -788,7 +788,7 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
         guidance:
           `Payment of $${amountUsd} USDC to ${req.payTo} settled on-chain (tx ${txHash}). ` +
           "The seller accepted payment but returned an error and did not deliver content. " +
-          "Do NOT call q402_x402_fetch again with the same arguments — the payment has already been made. " +
+          "Do NOT call this tool again with the same arguments — the payment has already been made. " +
           "Before contacting the seller, check whether the failure was caused by a wrong request shape " +
           "(wrong HTTP method, body, or content-type): read the endpoint's /.well-known/x402.json " +
           "to find the correct method and body format, then retry with the corrected shape " +
