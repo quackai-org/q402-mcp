@@ -29,6 +29,11 @@ export const GovernanceAnalyzeInputSchema = z.object({
   persona:      z.string().optional().describe(
     "Named analysis persona. Mutually exclusive with weights.",
   ),
+  language:     z.string().optional().describe(
+    "BCP-47 language code for result display. Set to the user's conversation language: " +
+    "\"zh\" for Chinese, \"en\" for English (or omit; server default). " +
+    "Passed to the server and used to localize returned fields.",
+  ),
   confirm:      z.literal(true).describe(
     "MUST be true. This tool triggers a paid x402 request; caller attests the user approved.",
   ),
@@ -149,6 +154,7 @@ interface ResolvedParams {
   proposalText?: string;
   weights?:      GovernanceAnalyzeInput["weights"];
   persona?:      string;
+  language?:     string;
 }
 
 function buildBody(params: ResolvedParams): string {
@@ -170,6 +176,10 @@ function buildBody(params: ResolvedParams): string {
 
   if (params.persona !== undefined) {
     body["customPrompt"] = params.persona;
+  }
+
+  if (params.language !== undefined) {
+    body["language"] = params.language;
   }
 
   return JSON.stringify(body);
@@ -215,6 +225,7 @@ export async function runGovernanceAnalyze(
       proposalText: resolvedProposalText,
       weights:      input.weights,
       persona:      input.persona,
+      language:     input.language,
     }),
     confirm: true,
     ...(input.consentToken !== undefined ? { consentToken: input.consentToken } : {}),
@@ -295,6 +306,21 @@ const TOOL_DESCRIPTION =
   "  • proposalText: raw proposal body text.\n" +
   "  • proposalId: a Snapshot proposal ID you already have (dao defaults to \"snapshot\" when omitted).\n" +
   "When the user pastes a link, use the url field. Do NOT ask the user for a proposal ID or dao name.\n\n" +
+  "LANGUAGE: set `language` to the user's conversation language code.\n" +
+  "  • User writes in Chinese (Simplified or Traditional) → language: \"zh\"\n" +
+  "  • User writes in English → language: \"en\" (or omit; server default)\n" +
+  "  • Other languages → use the BCP-47 code (e.g. \"ja\", \"ko\", \"fr\")\n" +
+  "The server uses this field to localize certain response fields.\n\n" +
+  "DISPLAY — when presenting results to the user, apply the mapping table below; do NOT expose raw English enum values:\n" +
+  "  vote_choice:  For → 赞成  |  Against → 反对  |  Abstain → 弃权\n" +
+  "  rating:       Poor → 差  |  Adequate → 及格  |  Good → 良好  |  Excellent → 优秀\n" +
+  "  dimensions:   Risk Control → 风险管控  |  Decentralization → 去中心化  |  Sustainability → 可持续性\n" +
+  "                Community Impact → 社区影响力  |  Innovation → 创新性\n\n" +
+  "FREE-TEXT LOCALIZATION — when presenting final_reasoning or any dimension justification text, " +
+  "scan for English dimension names (Risk Control, Decentralization, Sustainability, Community Impact, Innovation) " +
+  "and English rating words (Poor, Adequate, Good, Excellent) and replace each with the mapped equivalent above. " +
+  "Example: 'Risk Control(80) rated Good' must become '风险管控(80)评为良好'. " +
+  "No English dimension name or rating word may appear in any user-facing output.\n\n" +
   "TENDENCY → WEIGHTS (interpret the user's stated priority; omit weights entirely if neutral/unstated):\n" +
   "  • Risk-focused / conservative / \"from a risk angle\" → riskControl: 80, others: 50\n" +
   "  • Growth / aggressive / bullish on innovation → sustainability: 80, communityImpact: 70, riskControl: 40, decentralization: 50\n" +
@@ -343,6 +369,13 @@ export const GOVERNANCE_ANALYZE_TOOL = {
       persona: {
         type: "string",
         description: "Named analysis persona. Mutually exclusive with weights.",
+      },
+      language: {
+        type: "string",
+        description:
+          "BCP-47 language code for result display. Set to the user's conversation language: " +
+          "\"zh\" for Chinese, \"en\" for English (or omit). " +
+          "Controls server-side localization and instructs Claude to apply the display mapping table when presenting results.",
       },
       confirm: {
         type: "boolean",

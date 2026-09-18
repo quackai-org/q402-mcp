@@ -298,6 +298,44 @@ describe("AC-3: parameter mapping", () => {
     }
   });
 
+  test("language is forwarded to request body", async () => {
+    const capture = stubFetchCapture();
+    capture.respondWith(200, JSON.stringify({
+      vote_choice: "For",
+      final_reasoning: "test",
+      dimensions: [],
+    }));
+    try {
+      await runGovernanceAnalyze({
+        proposalText: "Test governance proposal",
+        language:     "zh",
+        confirm:      true,
+      });
+
+      assert.ok(capture.calls.length >= 1, "fetch was called");
+      const body = JSON.parse(capture.calls[0]!.body ?? "{}") as Record<string, unknown>;
+      assert.strictEqual(body["language"], "zh", "language is forwarded to request body");
+    } finally {
+      capture.restore();
+    }
+  });
+
+  test("language omitted → not present in request body", async () => {
+    const capture = stubFetchCapture();
+    capture.respondWith(200, JSON.stringify({ vote_choice: "For", final_reasoning: "ok", dimensions: [] }));
+    try {
+      await runGovernanceAnalyze({
+        proposalText: "Test governance proposal",
+        confirm:      true,
+      });
+      assert.ok(capture.calls.length >= 1, "fetch was called");
+      const body = JSON.parse(capture.calls[0]!.body ?? "{}") as Record<string, unknown>;
+      assert.strictEqual(body["language"], undefined, "no language key when not provided");
+    } finally {
+      capture.restore();
+    }
+  });
+
   test("proposalText + persona → body has Proposal_Content and customPrompt, no weights or dao", async () => {
     const capture = stubFetchCapture();
     capture.respondWith(200, JSON.stringify({

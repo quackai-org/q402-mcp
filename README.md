@@ -244,7 +244,7 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 | `q402_redstone_trigger_cancel` | live mode | Permanently stop a RedStone trigger. |
 | **x402 (outbound)** | | |
 | `q402_x402_fetch` | live mode | Fetch any x402-gated URL and handle HTTP 402 automatically: validates Base USDC payment option, guards against excess spend, signs EIP-3009 TransferWithAuthorization, and retries with the correct payment header (PAYMENT-SIGNATURE for v2 servers, X-PAYMENT for v1 legacy). Non-402 responses pass through unchanged. Returns `status:"settled_no_delivery"` (`fundsMoved:true, retrySafe:false`) when a txHash in the response confirms funds moved but the seller returned an error. Returns `status:"settled_status_unknown"` (`fundsMovedUnknown:true, retrySafe:false`) when no settlement proof exists — funds may or may not have moved. Do NOT retry either outcome. |
-| `q402_governance_analyze` | live mode | Paid governance proposal analysis. Paste a snapshot.org / snapshot.box link (or raw text) and optionally describe your priority in plain language; get a vote recommendation (For / Against / Abstain), five dimension ratings, and the reasoning. $0.05 USDC per call on Base via x402. |
+| `q402_governance_analyze` | live mode | Paid governance proposal analysis. Paste a snapshot.org / snapshot.box link (or raw text) and optionally describe your priority in plain language; get a vote recommendation (For / Against / Abstain), five dimension ratings, and the reasoning. Pass `language` (e.g. `"zh"`) to receive results in the user's language. $0.05 USDC per call on Base via x402. |
 
 `q402_pay` + `q402_batch_pay` + `q402_bridge_send` + `q402_yield_deposit` + `q402_yield_withdraw` + `q402_stake` + `q402_unstake` + `q402_request_pay` require explicit in-chat confirmation. Batch confirmation = full batch, not per-row.
 
@@ -298,6 +298,27 @@ If the endpoint returns 402, the tool responds with `needs_confirmation` and a `
 **Requirements.** `Q402_ENABLE_REAL_PAYMENTS=1` plus a local signing key (`Q402_AGENTIC_PRIVATE_KEY` or `Q402_PRIVATE_KEY`). The signed authorization goes directly to the seller's facilitator endpoint; the Q402 relay is not involved in this path.
 
 **Prerequisite — delegation check.** If you have previously called `q402_pay` on this wallet, it may be EIP-7702-delegated (shown as 'Smart account' in MetaMask / OKX). If delegated to an older implementation, `q402_x402_fetch` will fail. Wallets delegated to the current ERC-1271-capable implementation work normally. Recovery: call `q402_clear_delegation` (gasless on Base, reversible). After clearing, `q402_x402_fetch` works again. The next `q402_pay` re-delegates automatically.
+
+---
+
+## Governance analysis (q402_governance_analyze)
+
+`q402_governance_analyze` analyzes a Snapshot governance proposal and returns a vote recommendation, five dimension scores, and the reasoning. $0.05 USDC per call on Base via x402.
+
+**Input parameters.**
+
+| Parameter | Required | Description |
+|---|---|---|
+| `url` | one of | Snapshot proposal URL (snapshot.org or snapshot.box) or bare 0x proposal ID. |
+| `proposalText` | one of | Raw proposal body text. |
+| `proposalId` | one of | Snapshot proposal ID (`dao` defaults to `"snapshot"` when omitted). |
+| `weights` | optional | Priority weights (0-100 integer each): `riskControl`, `decentralization`, `sustainability`, `communityImpact`. Mutually exclusive with `persona`. |
+| `persona` | optional | Named analysis persona. Mutually exclusive with `weights`. |
+| `language` | optional | BCP-47 language code for result display. Set to the user's conversation language — e.g. `"zh"` for Chinese, `"en"` for English (default). The server uses this to localize response fields; Claude also applies the built-in translation table so results are presented fully in the user's language. |
+| `confirm` | required | Must be `true`. Attests user approved the $0.05 USDC charge. |
+| `consentToken` | optional | Two-phase consent token. Omit on first call; re-call with the token if `needs_confirmation` is returned. |
+
+**Language-aware results.** When `language: "zh"` is set, the vote recommendation, dimension names, ratings, and reasoning text are all presented in Chinese — no English enum values are shown to the user.
 
 ---
 
