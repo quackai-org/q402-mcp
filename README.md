@@ -244,7 +244,7 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 | `q402_redstone_trigger_cancel` | live mode | Permanently stop a RedStone trigger. |
 | **x402 (outbound)** | | |
 | `q402_x402_fetch` | live mode | Fetch any x402-gated URL and handle HTTP 402 automatically: validates Base USDC payment option, guards against excess spend, signs EIP-3009 TransferWithAuthorization, and retries with the correct payment header (PAYMENT-SIGNATURE for v2 servers, X-PAYMENT for v1 legacy). Non-402 responses pass through unchanged. Returns `status:"settled_no_delivery"` (`fundsMoved:true, retrySafe:false`) when a txHash in the response confirms funds moved but the seller returned an error. Returns `status:"settled_status_unknown"` (`fundsMovedUnknown:true, retrySafe:false`) when no settlement proof exists — funds may or may not have moved. Do NOT retry either outcome. |
-| `q402_governance_analyze` | live mode | Paid governance proposal analysis. Send a Snapshot proposal (or raw text) and priority weights; get a vote recommendation (For / Against / Abstain), five dimension ratings, and the reasoning. $0.05 USDC per call on Base via x402. |
+| `q402_governance_analyze` | live mode | Paid governance proposal analysis. Paste a snapshot.org / snapshot.box link (or raw text) and optionally describe your priority in plain language; get a vote recommendation (For / Against / Abstain), five dimension ratings, and the reasoning. $0.05 USDC per call on Base via x402. |
 
 `q402_pay` + `q402_batch_pay` + `q402_bridge_send` + `q402_yield_deposit` + `q402_yield_withdraw` + `q402_stake` + `q402_unstake` + `q402_request_pay` require explicit in-chat confirmation. Batch confirmation = full batch, not per-row.
 

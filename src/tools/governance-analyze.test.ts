@@ -1,10 +1,12 @@
 /**
  * Unit tests for q402_governance_analyze.
  *
- * AC-1 Input validation: three illegal input combinations return clear errors.
+ * AC-1 URL parsing: three link patterns, bare 0x passthrough, invalid link error.
+ * AC-2 dao defaults: proposalId-only → dao="snapshot"; space morpho.eth → dao="morpho".
  * AC-3 Parameter mapping: body fields are correctly mapped and the URL is correct.
  * AC-4 Two-phase consent: needs_confirmation pass-through and consentToken forwarding.
  * AC-5 Result parsing: success case with valid JSON and invalid-JSON error handling.
+ * Validation: input validation errors are clear and correct.
  */
 
 import { test, describe } from "node:test";
@@ -13,6 +15,8 @@ import assert from "node:assert/strict";
 import {
   runGovernanceAnalyze,
   GovernanceAnalyzeInputSchema,
+  parseSnapshotUrl,
+  spaceToDaoName,
 } from "./governance-analyze.js";
 import type { X402FetchResult } from "./x402-fetch.js";
 
@@ -90,10 +94,112 @@ function stubFetchCapture(): {
   };
 }
 
-// ── AC-1: Input validation ─────────────────────────────────────────────────────
+// ── AC-1: URL parsing (parseSnapshotUrl) ──────────────────────────────────────
 
-describe("AC-1: input validation", () => {
-  test("(a) all three identifiers absent → returns clear error", async () => {
+describe("AC-1: URL parsing", () => {
+  test("snapshot.org URL → correct space and proposalId", () => {
+    const result = parseSnapshotUrl(
+      "https://snapshot.org/#/morpho.eth/proposal/0xabc1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab",
+    );
+    assert.ok(!("error" in result), `should not return error: ${JSON.stringify(result)}`);
+    if ("error" in result) return;
+    assert.strictEqual(result.space,      "morpho.eth");
+    assert.strictEqual(result.proposalId, "0xabc1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab");
+  });
+
+  test("snapshot.box URL with s: prefix → space without prefix, correct proposalId", () => {
+    const result = parseSnapshotUrl(
+      "https://snapshot.box/#/s:aave.eth/proposal/0xdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab",
+    );
+    assert.ok(!("error" in result), `should not return error: ${JSON.stringify(result)}`);
+    if ("error" in result) return;
+    assert.strictEqual(result.space,      "aave.eth");
+    assert.strictEqual(result.proposalId, "0xdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab");
+  });
+
+  test("snapshot.box URL with sn: prefix → space without prefix, correct proposalId", () => {
+    const result = parseSnapshotUrl(
+      "https://snapshot.box/#/sn:solana-space/proposal/0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+    );
+    assert.ok(!("error" in result), `should not return error: ${JSON.stringify(result)}`);
+    if ("error" in result) return;
+    assert.strictEqual(result.space,      "solana-space");
+    assert.strictEqual(result.proposalId, "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef");
+  });
+
+  test("bare 0x 64-char hex → proposalId directly, no space", () => {
+    const id = "0x" + "a".repeat(64);
+    const result = parseSnapshotUrl(id);
+    assert.ok(!("error" in result), `should not return error: ${JSON.stringify(result)}`);
+    if ("error" in result) return;
+    assert.strictEqual(result.proposalId, id);
+    assert.strictEqual(result.space, undefined, "no space for bare 0x ID");
+  });
+
+  test("invalid URL → user-friendly error, no exception", () => {
+    const result = parseSnapshotUrl("https://not-snapshot.com/random");
+    assert.ok("error" in result, "should return error");
+    if (!("error" in result)) return;
+    assert.ok(
+      typeof result.error === "string" && result.error.length > 0,
+      "error is non-empty string",
+    );
+    // Must not contain raw stack traces or internal terms
+    assert.ok(
+      !result.error.toLowerCase().includes("typeerror") &&
+      !result.error.toLowerCase().includes("undefined"),
+      `error should be user-friendly: "${result.error}"`,
+    );
+  });
+});
+
+// ── AC-2: dao defaults and space mapping ──────────────────────────────────────
+
+describe("AC-2: dao defaults and space mapping", () => {
+  test("proposalId only (no dao) → request body has dao='snapshot'", async () => {
+    const capture = stubFetchCapture();
+    capture.respondWith(200, JSON.stringify({ vote_choice: "For", final_reasoning: "ok", dimensions: [] }));
+    try {
+      await runGovernanceAnalyze({
+        proposalId: "0x" + "b".repeat(64),
+        confirm:    true,
+      });
+
+      assert.ok(capture.calls.length >= 1, "fetch was called");
+      const body = JSON.parse(capture.calls[0]!.body ?? "{}") as Record<string, unknown>;
+      assert.strictEqual(body["dao"], "snapshot", "dao defaults to 'snapshot'");
+    } finally {
+      capture.restore();
+    }
+  });
+
+  test("snapshot.org URL with morpho.eth space → body has dao='morpho'", async () => {
+    const proposalId = "0x" + "c".repeat(64);
+    const capture = stubFetchCapture();
+    capture.respondWith(200, JSON.stringify({ vote_choice: "For", final_reasoning: "ok", dimensions: [] }));
+    try {
+      await runGovernanceAnalyze({
+        url:     `https://snapshot.org/#/morpho.eth/proposal/${proposalId}`,
+        confirm: true,
+      });
+
+      assert.ok(capture.calls.length >= 1, "fetch was called");
+      // The first call may be to snapshot.org GraphQL for title; governance endpoint is last
+      const govCall = capture.calls.find(c => c.url.includes("/x402/governance/analyze"));
+      assert.ok(govCall, "governance endpoint was called");
+      const body = JSON.parse(govCall!.body ?? "{}") as Record<string, unknown>;
+      assert.strictEqual(body["dao"],        "morpho",     "dao stripped .eth suffix");
+      assert.strictEqual(body["proposalId"], proposalId,   "proposalId passed through");
+    } finally {
+      capture.restore();
+    }
+  });
+});
+
+// ── Input validation ──────────────────────────────────────────────────────────
+
+describe("Input validation", () => {
+  test("(a) all identifiers absent → returns clear error", async () => {
     const result = await runGovernanceAnalyze({ confirm: true });
     assert.strictEqual(result.success, false, "success is false");
     assert.ok(
@@ -102,7 +208,9 @@ describe("AC-1: input validation", () => {
     );
     assert.ok(
       result.error!.toLowerCase().includes("proposaltext") ||
-      result.error!.toLowerCase().includes("dao"),
+      result.error!.toLowerCase().includes("dao") ||
+      result.error!.toLowerCase().includes("url") ||
+      result.error!.toLowerCase().includes("proposalid"),
       `error mentions the missing fields: "${result.error}"`,
     );
   });
