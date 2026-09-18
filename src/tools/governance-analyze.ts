@@ -13,7 +13,14 @@ const WeightsSchema = z.object({
 }).strict();
 
 export const GovernanceAnalyzeInputSchema = z.object({
-  dao:          z.string().optional().describe("DAO identifier (e.g. \"moonwell\", \"aave\")."),
+  url:          z.string().optional().describe(
+    "Snapshot proposal URL (snapshot.org or snapshot.box) or bare 0x proposal ID (64 hex chars). " +
+    "Mutually exclusive with proposalId and proposalText.",
+  ),
+  dao:          z.string().optional().describe(
+    "DAO identifier (e.g. \"moonwell\", \"aave\"). Optional — inferred from url when provided; " +
+    "defaults to \"snapshot\" when only proposalId is given.",
+  ),
   proposalId:   z.string().optional().describe("On-chain proposal ID or Snapshot ID."),
   proposalText: z.string().optional().describe("Raw proposal text or description."),
   weights:      WeightsSchema.optional().describe(
@@ -55,15 +62,78 @@ export interface GovernanceAnalyzeResult {
   auditId?:     string;
 }
 
+// ── URL parsing ────────────────────────────────────────────────────────────────
+
+export function parseSnapshotUrl(
+  rawUrl: string,
+): { proposalId: string; space?: string } | { error: string } {
+  const trimmed = rawUrl.trim();
+
+  // Bare 0x 64-char hex proposal ID
+  if (/^0x[0-9a-fA-F]{64}$/.test(trimmed)) {
+    return { proposalId: trimmed };
+  }
+
+  // snapshot.org/#/<space>/proposal/<id>
+  const orgMatch = trimmed.match(
+    /snapshot\.org\/#\/([^/?#]+)\/proposal\/(0x[0-9a-fA-F]+)/i,
+  );
+  if (orgMatch) {
+    return { proposalId: orgMatch[2]!, space: orgMatch[1]! };
+  }
+
+  // snapshot.box/#/<prefix:>?<space>/proposal/<id>
+  // Any colon-separated prefix (s:, sn:, etc.) is stripped; take the part after the colon.
+  const boxMatch = trimmed.match(
+    /snapshot\.box\/#\/(?:[^:/?#]+:)?([^/?#]+)\/proposal\/(0x[0-9a-fA-F]+)/i,
+  );
+  if (boxMatch) {
+    return { proposalId: boxMatch[2]!, space: boxMatch[1]! };
+  }
+
+  return {
+    error:
+      "Invalid Snapshot link. Please paste a URL from snapshot.org or snapshot.box, or a bare 0x proposal ID.",
+  };
+}
+
+export function spaceToDaoName(space: string): string {
+  return space.endsWith(".eth") ? space.slice(0, -4) : space;
+}
+
+// ── Title fetch (optional, fail-silent) ───────────────────────────────────────
+
+async function fetchProposalTitle(proposalId: string): Promise<string | null> {
+  try {
+    const resp = await fetch("https://hub.snapshot.org/graphql", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: "query ($id: String!) { proposal(id: $id) { title } }",
+        variables: { id: proposalId },
+      }),
+      signal: AbortSignal.timeout(3_000),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json() as { data?: { proposal?: { title?: string } | null } };
+    return data?.data?.proposal?.title ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Validation ─────────────────────────────────────────────────────────────────
 
 function validateInput(input: GovernanceAnalyzeInput): string | null {
+  const hasUrl          = typeof input.url === "string"          && input.url.length > 0;
   const hasProposalText = typeof input.proposalText === "string" && input.proposalText.length > 0;
-  const hasDaoAndId = typeof input.dao === "string" && input.dao.length > 0 &&
-                      typeof input.proposalId === "string" && input.proposalId.length > 0;
+  const hasProposalId   = typeof input.proposalId === "string"   && input.proposalId.length > 0;
 
-  if (!hasProposalText && !hasDaoAndId) {
-    return "Must provide proposalText, or both dao and proposalId.";
+  if (!hasUrl && !hasProposalText && !hasProposalId) {
+    return "Must provide one of: url (Snapshot proposal link or 0x ID), proposalText, or proposalId.";
+  }
+  if ([hasUrl, hasProposalText, hasProposalId].filter(Boolean).length > 1) {
+    return "url, proposalText, and proposalId are mutually exclusive — provide exactly one.";
   }
   if (input.weights !== undefined && input.persona !== undefined) {
     return "weights and persona are mutually exclusive — provide one or neither, not both.";
@@ -73,25 +143,33 @@ function validateInput(input: GovernanceAnalyzeInput): string | null {
 
 // ── Body builder ───────────────────────────────────────────────────────────────
 
-function buildBody(input: GovernanceAnalyzeInput): string {
+interface ResolvedParams {
+  dao?:          string;
+  proposalId?:   string;
+  proposalText?: string;
+  weights?:      GovernanceAnalyzeInput["weights"];
+  persona?:      string;
+}
+
+function buildBody(params: ResolvedParams): string {
   const body: Record<string, unknown> = {};
 
-  if (typeof input.proposalText === "string" && input.proposalText.length > 0) {
-    body["Proposal_Content"] = input.proposalText;
+  if (typeof params.proposalText === "string" && params.proposalText.length > 0) {
+    body["Proposal_Content"] = params.proposalText;
   } else {
-    body["dao"]        = input.dao;
-    body["proposalId"] = input.proposalId;
+    body["dao"]        = params.dao;
+    body["proposalId"] = params.proposalId;
   }
 
-  if (input.weights !== undefined) {
-    body["Risk_Control"]     = input.weights.riskControl;
-    body["Decentralization"] = input.weights.decentralization;
-    body["Sustainability"]   = input.weights.sustainability;
-    body["Community_Impact"] = input.weights.communityImpact;
+  if (params.weights !== undefined) {
+    body["Risk_Control"]     = params.weights.riskControl;
+    body["Decentralization"] = params.weights.decentralization;
+    body["Sustainability"]   = params.weights.sustainability;
+    body["Community_Impact"] = params.weights.communityImpact;
   }
 
-  if (input.persona !== undefined) {
-    body["customPrompt"] = input.persona;
+  if (params.persona !== undefined) {
+    body["customPrompt"] = params.persona;
   }
 
   return JSON.stringify(body);
@@ -107,30 +185,78 @@ export async function runGovernanceAnalyze(
     return { success: false, error: validationError };
   }
 
+  // Resolve proposal identifier → dao + proposalId (or proposalText pass-through)
+  let resolvedProposalId:   string | undefined;
+  let resolvedDao:          string | undefined;
+  let resolvedProposalText: string | undefined;
+
+  if (input.url) {
+    const parsed = parseSnapshotUrl(input.url);
+    if ("error" in parsed) {
+      return { success: false, error: parsed.error };
+    }
+    resolvedProposalId = parsed.proposalId;
+    resolvedDao        = parsed.space ? spaceToDaoName(parsed.space) : "snapshot";
+  } else if (input.proposalId) {
+    resolvedProposalId = input.proposalId;
+    resolvedDao        = input.dao ?? "snapshot";
+  } else {
+    resolvedProposalText = input.proposalText;
+  }
+
   const url = `${CONFIG.relayBaseUrl}/x402/governance/analyze`;
 
   const fetchResult = await runX402Fetch({
     url,
     method: "POST",
-    body:   buildBody(input),
+    body: buildBody({
+      dao:          resolvedDao,
+      proposalId:   resolvedProposalId,
+      proposalText: resolvedProposalText,
+      weights:      input.weights,
+      persona:      input.persona,
+    }),
     confirm: true,
     ...(input.consentToken !== undefined ? { consentToken: input.consentToken } : {}),
   });
 
   if (!fetchResult.success) {
+    // Replace the generic x402 preview with a user-friendly confirmation message.
+    if (fetchResult.needsConsent) {
+      const title   = resolvedProposalId ? await fetchProposalTitle(resolvedProposalId) : null;
+      const subject = title ? `"${title}"` : "this governance proposal";
+      const preview = `Analyze ${subject} — $0.05 USDC. Confirm to start the analysis.`;
+      return {
+        success: false,
+        needsConsent: {
+          status:       "needs_confirmation",
+          preview,
+          consentToken: fetchResult.needsConsent.consentToken,
+        },
+        status:            fetchResult.status,
+        fundsMoved:        fetchResult.fundsMoved,
+        fundsMovedUnknown: fetchResult.fundsMovedUnknown,
+        retrySafe:         fetchResult.retrySafe,
+        txHash:            fetchResult.txHash,
+        recipient:         fetchResult.recipient,
+        amount:            fetchResult.amount,
+        guidance:          fetchResult.guidance,
+        auditId:           fetchResult.auditId,
+      };
+    }
     return {
-      success:      false,
-      needsConsent: fetchResult.needsConsent,
-      error:        fetchResult.error,
-      status:       fetchResult.status,
-      fundsMoved:   fetchResult.fundsMoved,
+      success:           false,
+      needsConsent:      fetchResult.needsConsent,
+      error:             fetchResult.error,
+      status:            fetchResult.status,
+      fundsMoved:        fetchResult.fundsMoved,
       fundsMovedUnknown: fetchResult.fundsMovedUnknown,
-      retrySafe:    fetchResult.retrySafe,
-      txHash:       fetchResult.txHash,
-      recipient:    fetchResult.recipient,
-      amount:       fetchResult.amount,
-      guidance:     fetchResult.guidance,
-      auditId:      fetchResult.auditId,
+      retrySafe:         fetchResult.retrySafe,
+      txHash:            fetchResult.txHash,
+      recipient:         fetchResult.recipient,
+      amount:            fetchResult.amount,
+      guidance:          fetchResult.guidance,
+      auditId:           fetchResult.auditId,
     };
   }
 
@@ -161,9 +287,20 @@ export async function runGovernanceAnalyze(
 // ── Tool descriptor ────────────────────────────────────────────────────────────
 
 const TOOL_DESCRIPTION =
-  "Paid governance proposal analysis. Send a Snapshot proposal (or raw text) and priority " +
-  "weights; get a vote recommendation (For / Against / Abstain), five dimension ratings, " +
-  "and the reasoning. $0.05 USDC per call on Base via x402.";
+  "Paid governance proposal analysis. Paste a Snapshot link (or raw text) and optionally describe " +
+  "your priority in plain language; get a vote recommendation (For / Against / Abstain), five " +
+  "dimension ratings, and the reasoning. $0.05 USDC per call on Base via x402.\n\n" +
+  "INPUT — provide exactly one of:\n" +
+  "  • url: a snapshot.org or snapshot.box proposal link, or a bare 0x proposal ID (64 hex chars).\n" +
+  "  • proposalText: raw proposal body text.\n" +
+  "  • proposalId: a Snapshot proposal ID you already have (dao defaults to \"snapshot\" when omitted).\n" +
+  "When the user pastes a link, use the url field. Do NOT ask the user for a proposal ID or dao name.\n\n" +
+  "TENDENCY → WEIGHTS (interpret the user's stated priority; omit weights entirely if neutral/unstated):\n" +
+  "  • Risk-focused / conservative / \"from a risk angle\" → riskControl: 80, others: 50\n" +
+  "  • Growth / aggressive / bullish on innovation → sustainability: 80, communityImpact: 70, riskControl: 40, decentralization: 50\n" +
+  "  • Decentralization-first / governance principles → decentralization: 80, others: 50\n" +
+  "  • Neutral / not stated → omit weights (server defaults all to 50)\n" +
+  "weights and persona are mutually exclusive.";
 
 export const GOVERNANCE_ANALYZE_TOOL = {
   name: "q402_governance_analyze",
@@ -171,9 +308,17 @@ export const GOVERNANCE_ANALYZE_TOOL = {
   inputSchema: {
     type: "object" as const,
     properties: {
+      url: {
+        type: "string",
+        description:
+          "Snapshot proposal URL (snapshot.org or snapshot.box) or bare 0x proposal ID. " +
+          "Use this when the user pastes a link — do not ask for proposal ID or dao.",
+      },
       dao: {
         type: "string",
-        description: "DAO identifier (e.g. \"moonwell\", \"aave\").",
+        description:
+          "DAO identifier (e.g. \"moonwell\", \"aave\"). Optional — inferred from url when provided; " +
+          "defaults to \"snapshot\" when only proposalId is given.",
       },
       proposalId: {
         type: "string",
