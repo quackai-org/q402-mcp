@@ -396,6 +396,84 @@ describe("AC-4: two-phase consent pass-through", () => {
       restore();
     }
   });
+
+  test("fetchProposalTitle failure → silent fallback to 'this governance proposal' in preview", async () => {
+    // Goal: verify that when fetchProposalTitle fails (GraphQL returns an error),
+    // runGovernanceAnalyze silently degrades: the preview uses "this governance proposal"
+    // as the subject, no error is thrown, and the payment flow continues to needs_confirmation.
+    const origKey         = process.env["Q402_AGENTIC_PRIVATE_KEY"];
+    const origRealPay     = process.env["Q402_ENABLE_REAL_PAYMENTS"];
+    // Use a well-known Ethereum test private key (key #1, no real funds).
+    process.env["Q402_AGENTIC_PRIVATE_KEY"] = "0x0000000000000000000000000000000000000000000000000000000000000001";
+    process.env["Q402_ENABLE_REAL_PAYMENTS"] = "1";
+
+    const origFetchLocal = globalThis.fetch;
+    globalThis.fetch = async (input: unknown, _init?: unknown): Promise<Response> => {
+      const url = typeof input === "string" ? input : (input as Request).url ?? String(input);
+      // Governance endpoint: return 402 to drive the payment consent path.
+      if (url.includes("/x402/governance/analyze")) {
+        return new Response(
+          JSON.stringify({
+            x402Version: 2,
+            accepts: [{
+              scheme:            "exact",
+              network:           "base",
+              asset:             "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+              amount:            "50000",
+              payTo:             "0x1234567890123456789012345678901234567890",
+              maxTimeoutSeconds: 300,
+            }],
+          }),
+          { status: 402, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      // Snapshot GraphQL endpoint: return 500 so fetchProposalTitle fails silently.
+      if (url.includes("hub.snapshot.org")) {
+        return new Response("Internal Server Error", { status: 500 });
+      }
+      // Any other fetch (e.g. Base RPC for delegation check): benign 200.
+      return new Response('{"result":"0x"}', { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+
+    try {
+      const result = await runGovernanceAnalyze({
+        proposalId: "0x" + "a".repeat(64),
+        confirm:    true,
+        // No consentToken → triggers needs_confirmation path.
+      });
+
+      assert.strictEqual(result.success, false, "success must be false (needs_confirmation)");
+      assert.ok(result.needsConsent, "needsConsent must be present");
+      assert.strictEqual(result.needsConsent!.status, "needs_confirmation", "status is needs_confirmation");
+
+      // fetchProposalTitle failed → fallback subject used.
+      assert.ok(
+        result.needsConsent!.preview.includes("this governance proposal"),
+        `preview must use fallback subject: "${result.needsConsent!.preview}"`,
+      );
+      // Preview must not expose hex proposal ID or internal names.
+      assert.ok(
+        !result.needsConsent!.preview.match(/0x[0-9a-fA-F]/),
+        `preview must not contain a hex value: "${result.needsConsent!.preview}"`,
+      );
+      assert.ok(
+        !result.needsConsent!.preview.toLowerCase().includes("governance-analyze") &&
+        !result.needsConsent!.preview.toLowerCase().includes("fetchproposaltitle"),
+        `preview must not contain internal tool names: "${result.needsConsent!.preview}"`,
+      );
+      // Payment flow continues: consentToken is present (process can proceed once user confirms).
+      assert.ok(
+        typeof result.needsConsent!.consentToken === "string" && result.needsConsent!.consentToken.length > 0,
+        "consentToken must be present so payment can proceed after confirmation",
+      );
+    } finally {
+      globalThis.fetch = origFetchLocal;
+      if (origKey === undefined) { delete process.env["Q402_AGENTIC_PRIVATE_KEY"]; }
+      else { process.env["Q402_AGENTIC_PRIVATE_KEY"] = origKey; }
+      if (origRealPay === undefined) { delete process.env["Q402_ENABLE_REAL_PAYMENTS"]; }
+      else { process.env["Q402_ENABLE_REAL_PAYMENTS"] = origRealPay; }
+    }
+  });
 });
 
 // ── AC-5: Result parsing ───────────────────────────────────────────────────────
