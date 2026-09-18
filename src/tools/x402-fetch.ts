@@ -22,6 +22,7 @@
 import { Wallet, hexlify, parseUnits, randomBytes } from "ethers";
 import { z } from "zod";
 import { CONFIG, isValidPrivateKey, ENV } from "../config.js";
+import { CHAIN_CONFIG } from "../chains.js";
 import {
   checkConsent,
   maxAmountGuard,
@@ -73,24 +74,32 @@ export { getSessionSpendUsd, resetSessionSpendUsd } from "../guards.js";
 
 // ── EIP-7702 delegation guard ──────────────────────────────────────────────────
 // Overridable in tests — null re-enables the real eth_getCode path.
-let _delegationCheckOverride: ((address: string) => Promise<boolean>) | null = null;
+// The override function returns the impl address string when delegated, or null when not.
+let _delegationCheckOverride: ((address: string) => Promise<string | null>) | null = null;
 
-/** Inject a stub in tests; pass null to restore the real eth_getCode check. */
-export function _setDelegationCheck(fn: ((address: string) => Promise<boolean>) | null): void {
+/**
+ * Inject a stub in tests; pass null to restore the real eth_getCode check.
+ * The stub should return the impl address string if the wallet is delegated,
+ * or null if it is not delegated.
+ */
+export function _setDelegationCheck(fn: ((address: string) => Promise<string | null>) | null): void {
   _delegationCheckOverride = fn;
 }
 
-type DelegationStatus = "delegated" | "clear" | "check_skipped";
+type DelegationStatus =
+  | { kind: "delegated"; implAddress: string }
+  | { kind: "clear" }
+  | { kind: "check_skipped" };
 
 /**
- * Returns "delegated" if eth_getCode for the address on Base starts with the
- * EIP-7702 prefix (0xef0100), "clear" if it does not, or "check_skipped" if
- * the RPC call fails — in which case the caller should proceed but add a
- * delegation possibility hint to any subsequent settlement failure.
+ * Returns the impl address when the wallet is EIP-7702 delegated on Base,
+ * "clear" when it is not, or "check_skipped" when the RPC call fails.
+ * EIP-7702 delegation bytecode: 0xef0100 (3 bytes) + 20-byte impl address.
  */
 async function checkEip7702Delegation(address: string): Promise<DelegationStatus> {
   if (_delegationCheckOverride !== null) {
-    return (await _delegationCheckOverride(address)) ? "delegated" : "clear";
+    const impl = await _delegationCheckOverride(address);
+    return impl !== null ? { kind: "delegated", implAddress: impl } : { kind: "clear" };
   }
   try {
     const resp = await fetch(BASE_RPC_URL, {
@@ -104,12 +113,15 @@ async function checkEip7702Delegation(address: string): Promise<DelegationStatus
       }),
       signal: AbortSignal.timeout(5_000),
     });
-    if (!resp.ok) return "check_skipped";
+    if (!resp.ok) return { kind: "check_skipped" };
     const data = await resp.json() as { result?: string };
     const code = (data.result ?? "").toLowerCase();
-    return code.startsWith(EIP7702_PREFIX) ? "delegated" : "clear";
+    if (!code.startsWith(EIP7702_PREFIX)) return { kind: "clear" };
+    // Extract the 20-byte (40 hex chars) impl address following the 0xef0100 prefix.
+    const implHex = code.slice(EIP7702_PREFIX.length);
+    return { kind: "delegated", implAddress: "0x" + implHex.slice(0, 40) };
   } catch {
-    return "check_skipped";
+    return { kind: "check_skipped" };
   }
 }
 
@@ -559,7 +571,7 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
         preview:
           `Fetching ${input.url} requires payment of $${humanAmount} USDC ` +
           `to ${req.payTo} on Base. ` +
-          `Confirm with the user, then re-call q402_x402_fetch with the same args plus ` +
+          `Confirm with the user, then re-call this tool with the same args plus ` +
           `consentToken="${consent.expected}".`,
         consentToken: consent.expected,
       },
@@ -569,43 +581,46 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
   // ── Step 5f: EIP-7702 delegation guard ───────────────────────────────────────
   // Derive the signing address without making any RPC call (sync from private key).
   const signerAddress = new Wallet(signingKey).address;
-  const delegationStatus = await checkEip7702Delegation(signerAddress);
-  if (delegationStatus === "delegated") {
-    writeAudit({
-      id: auditId, url: input.url, method, payTo: req.payTo, asset: req.asset,
-      network: req.network, amountAtomic: req.amount, amountUsd,
-      status: "blocked_by_guard", blockedReason: "wallet_delegated",
-    });
-    return {
-      success: false,
-      statusCode: 402,
-      error:
-        "x402: signing wallet is EIP-7702 delegated to the q402 rail — " +
-        "EIP-3009 signatures from delegated EOAs fail settlement on Base USDC V2.2. " +
-        "Run q402_wallet_status to confirm, then q402_clear_delegation to fix (gasless on Base).",
-      auditId,
-      delegationBlocked: {
-        why:
-          "The signing key's EOA is EIP-7702 delegated to the q402 contract. " +
-          "Base USDC V2.2 routes EIP-3009 signatures from delegated accounts through ERC-1271, " +
-          "which the q402 implementation does not support, causing the seller's payment " +
-          "settlement to reject. The delegation must be cleared before EIP-3009 can be used.",
-        steps: [
-          {
-            step: 1,
-            tool: "q402_wallet_status",
-            purpose:
-              "Confirm which chains are currently delegated and that this wallet is affected.",
-          },
-          {
-            step: 2,
-            tool: "q402_clear_delegation",
-            purpose:
-              "Clear the EIP-7702 delegation (gasless on Base), then retry q402_x402_fetch.",
-          },
-        ],
-      },
-    };
+  const delegationCheck = await checkEip7702Delegation(signerAddress);
+  if (delegationCheck.kind === "delegated") {
+    // Allow if delegated to the current ERC-1271-capable impl; block old/unknown impls.
+    const allowedImpl = CHAIN_CONFIG.base.implContract.toLowerCase();
+    if (delegationCheck.implAddress.toLowerCase() !== allowedImpl) {
+      writeAudit({
+        id: auditId, url: input.url, method, payTo: req.payTo, asset: req.asset,
+        network: req.network, amountAtomic: req.amount, amountUsd,
+        status: "blocked_by_guard", blockedReason: "wallet_delegated",
+      });
+      return {
+        success: false,
+        statusCode: 402,
+        error:
+          "x402: signing wallet is delegated to an older implementation that does not support ERC-1271. " +
+          "Run q402_wallet_status to confirm, then q402_clear_delegation to fix (gasless on Base).",
+        auditId,
+        delegationBlocked: {
+          why:
+            "The signing wallet is delegated to an older contract that does not support ERC-1271. " +
+            "Payments from wallets in this state will be rejected by the facilitator. " +
+            "Clear the delegation with q402_clear_delegation (gasless on Base) to restore payment capability.",
+          steps: [
+            {
+              step: 1,
+              tool: "q402_wallet_status",
+              purpose:
+                "Confirm which chains are currently delegated and that this wallet is affected.",
+            },
+            {
+              step: 2,
+              tool: "q402_clear_delegation",
+              purpose:
+                "Clear the EIP-7702 delegation (gasless on Base) to restore payment capability.",
+            },
+          ],
+        },
+      };
+    }
+    // Wallet is delegated to the current ERC-1271-capable impl — proceed normally.
   }
 
   // ── Step 6: sign EIP-3009 ────────────────────────────────────────────────────
@@ -721,7 +736,7 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
         fundsMoved: false,
       });
       const delegationHint =
-        delegationStatus === "check_skipped"
+        delegationCheck.kind === "check_skipped"
           ? " Delegation check was skipped (RPC unavailable) — if this repeats, " +
             "the signing wallet may be EIP-7702 delegated: run q402_wallet_status " +
             "to verify and q402_clear_delegation to fix."
@@ -793,7 +808,7 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
       txHash: null,
     });
     const delegationHintUnknown =
-      delegationStatus === "check_skipped"
+      delegationCheck.kind === "check_skipped"
         ? " (delegation check skipped — run q402_wallet_status if this repeats)"
         : "";
     return {
@@ -856,12 +871,14 @@ export const X402_FETCH_TOOL = {
     "TransferWithAuthorization, and retries with PAYMENT-SIGNATURE (v2 servers) or X-PAYMENT (v1 legacy). Non-402 responses " +
     "are passed through directly, so this also serves as a regular fetch tool. " +
     "\n\n" +
-    "PREREQUISITE — EIP-7702 delegation check: this tool signs payments via EIP-3009, which " +
-    "is incompatible with an EIP-7702-delegated wallet. If q402_pay has been called on this " +
+    "PREREQUISITE — EIP-7702 delegation check: if q402_pay has been called on this " +
     "wallet (it activates EIP-7702 delegation on the first payment per chain), " +
-    "q402_x402_fetch will fail until the delegation is cleared. The check is automatic: " +
-    "if the wallet is delegated, this tool returns a delegationBlocked result with step-by-step " +
-    "recovery instructions. To clear the delegation proactively, call q402_clear_delegation " +
+    "x402 payments are blocked only when the wallet is delegated to an older implementation " +
+    "that does not support ERC-1271. Wallets delegated to the current ERC-1271-capable " +
+    "implementation (Base) can pay normally. The check is automatic: " +
+    "if the wallet is delegated to an unsupported implementation, this tool returns a " +
+    "delegationBlocked result with step-by-step recovery instructions. " +
+    "To clear the delegation proactively, call q402_clear_delegation " +
     "(gasless on Base, reversible — the next q402_pay re-delegates automatically). " +
     "\n\n" +
     "SUPPORTED: scheme=exact + network=base (i.e. CAIP-2 eip155:8453; also accepted: " +

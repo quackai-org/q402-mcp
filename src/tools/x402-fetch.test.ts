@@ -337,7 +337,7 @@ describe("AC-3: X-PAYMENT header preserves server-sent network verbatim", () => 
       "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
     // Bypass eth_getCode delegation check so the stub only needs the 402 + retry.
-    _setDelegationCheck(async () => false);
+    _setDelegationCheck(async () => null);
     resetSessionSpendUsd();
 
     const { checkConsent } = await import("../consent.js");
@@ -569,7 +569,7 @@ describe("AC-8: X-PAYMENT header assembly and retry", () => {
       "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
     // Bypass eth_getCode delegation check so the stub only needs the 402 + retry.
-    _setDelegationCheck(async () => false);
+    _setDelegationCheck(async () => null);
     resetSessionSpendUsd();
 
     // Build the consent token first
@@ -795,7 +795,7 @@ describe("AC-9: v2 wire-format conformance", () => {
   async function runPaid(bodyOrHeader: { body?: string; prHeader?: string }, url: string) {
     process.env["Q402_ENABLE_REAL_PAYMENTS"] = "1";
     process.env["Q402_AGENTIC_PRIVATE_KEY"] = TEST_PK;
-    _setDelegationCheck(async () => false);
+    _setDelegationCheck(async () => null);
     resetSessionSpendUsd();
     const { checkConsent } = await import("../consent.js");
     const { expected: token } = checkConsent({
@@ -905,7 +905,7 @@ describe("settled_no_delivery: payment accepted, seller returned non-2xx", () =>
 
     process.env["Q402_ENABLE_REAL_PAYMENTS"] = "1";
     process.env["Q402_AGENTIC_PRIVATE_KEY"] = TEST_PK;
-    _setDelegationCheck(async () => false);
+    _setDelegationCheck(async () => null);
     resetSessionSpendUsd();
 
     const { checkConsent } = await import("../consent.js");
@@ -1017,7 +1017,7 @@ describe("settled_no_delivery: payment accepted, seller returned non-2xx", () =>
   test("AC-9: network error after payment header sent — settled_status_unknown, retrySafe:false", async () => {
     process.env["Q402_ENABLE_REAL_PAYMENTS"] = "1";
     process.env["Q402_AGENTIC_PRIVATE_KEY"] = TEST_PK;
-    _setDelegationCheck(async () => false);
+    _setDelegationCheck(async () => null);
     resetSessionSpendUsd();
 
     const { checkConsent } = await import("../consent.js");
@@ -1215,7 +1215,7 @@ describe("settled_no_delivery: payment accepted, seller returned non-2xx", () =>
   test("AC-1 regression: retry 402 is NOT settled_no_delivery (payment rejected, funds did not move)", async () => {
     process.env["Q402_ENABLE_REAL_PAYMENTS"] = "1";
     process.env["Q402_AGENTIC_PRIVATE_KEY"] = TEST_PK;
-    _setDelegationCheck(async () => false);
+    _setDelegationCheck(async () => null);
     resetSessionSpendUsd();
 
     const { checkConsent } = await import("../consent.js");
@@ -1255,5 +1255,115 @@ describe("settled_no_delivery: payment accepted, seller returned non-2xx", () =>
       delete process.env["Q402_AGENTIC_PRIVATE_KEY"];
       resetSessionSpendUsd();
     }
+  });
+});
+
+// ── EIP-7702 delegation guard: three-state (AC-1) ────────────────────────────
+//
+// Current ERC-1271-capable impl on Base (from chains.ts CHAIN_CONFIG.base.implContract):
+const NEW_IMPL = "0xcb1C912D3849857754A0aE8CAA11b72f5a96142E";
+// An older implementation address that is NOT ERC-1271 capable:
+const OLD_IMPL = "0x2fb2B2D110b6c5664e701666B3741240242bf350";
+const TEST_PK_DEL = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+
+async function withDelegationEnv(fn: () => Promise<void>): Promise<void> {
+  const origEnable = process.env["Q402_ENABLE_REAL_PAYMENTS"];
+  const origPk = process.env["Q402_AGENTIC_PRIVATE_KEY"];
+  process.env["Q402_ENABLE_REAL_PAYMENTS"] = "1";
+  process.env["Q402_AGENTIC_PRIVATE_KEY"] = TEST_PK_DEL;
+  try {
+    await fn();
+  } finally {
+    if (origEnable !== undefined) process.env["Q402_ENABLE_REAL_PAYMENTS"] = origEnable;
+    else delete process.env["Q402_ENABLE_REAL_PAYMENTS"];
+    if (origPk !== undefined) process.env["Q402_AGENTIC_PRIVATE_KEY"] = origPk;
+    else delete process.env["Q402_AGENTIC_PRIVATE_KEY"];
+    _setDelegationCheck(null);
+  }
+}
+
+describe("EIP-7702 delegation guard: three-state (AC-1)", () => {
+  async function buildConsentToken(url: string): Promise<string> {
+    const { checkConsent } = await import("../consent.js");
+    const { expected } = checkConsent({
+      t: "x402_fetch",
+      url,
+      method: "GET",
+      payTo: SELLER.toLowerCase(),
+      amountAtomic: "100",
+      asset: BASE_USDC.toLowerCase(),
+      network: "base",
+    }, undefined);
+    return expected;
+  }
+
+  test("not delegated (eth_getCode = 0x) → proceeds past delegation guard", async () => {
+    await withDelegationEnv(async () => {
+      resetSessionSpendUsd();
+      _setDelegationCheck(async () => null);
+      const url = "https://x402.example/deleg-test-clear";
+      const token = await buildConsentToken(url);
+      const restore = stubFetch([
+        () => Promise.resolve(makeResponse(402, make402Body())),
+        () => Promise.resolve(makeResponse(200, '{"ok":true}')),
+      ]);
+      try {
+        const result = await runX402Fetch({ url, confirm: true, consentToken: token });
+        assert.ok(result.delegationBlocked === undefined, "delegationBlocked must not be set");
+        assert.ok(
+          !result.error?.toLowerCase().includes("older implementation"),
+          `delegation error must not appear: ${result.error}`,
+        );
+      } finally {
+        restore();
+        resetSessionSpendUsd();
+      }
+    });
+  });
+
+  test("delegated to new ERC-1271-capable impl → proceeds past delegation guard", async () => {
+    await withDelegationEnv(async () => {
+      resetSessionSpendUsd();
+      _setDelegationCheck(async () => NEW_IMPL);
+      const url = "https://x402.example/deleg-test-new-impl";
+      const token = await buildConsentToken(url);
+      const restore = stubFetch([
+        () => Promise.resolve(makeResponse(402, make402Body())),
+        () => Promise.resolve(makeResponse(200, '{"ok":true}')),
+      ]);
+      try {
+        const result = await runX402Fetch({ url, confirm: true, consentToken: token });
+        assert.ok(result.delegationBlocked === undefined, "delegationBlocked must not be set for ERC-1271 impl");
+        assert.ok(
+          !result.error?.toLowerCase().includes("older implementation"),
+          `delegation error must not appear for ERC-1271 impl: ${result.error}`,
+        );
+      } finally {
+        restore();
+        resetSessionSpendUsd();
+      }
+    });
+  });
+
+  test("delegated to old impl → returns delegationBlocked with q402_clear_delegation", async () => {
+    await withDelegationEnv(async () => {
+      resetSessionSpendUsd();
+      _setDelegationCheck(async () => OLD_IMPL);
+      const url = "https://x402.example/deleg-test-old-impl";
+      const token = await buildConsentToken(url);
+      const restore = stubFetch([() => Promise.resolve(makeResponse(402, make402Body()))]);
+      try {
+        const result = await runX402Fetch({ url, confirm: true, consentToken: token });
+        assert.ok(result.delegationBlocked !== undefined, "delegationBlocked must be set for old impl");
+        const steps = (result.delegationBlocked?.steps ?? []) as Array<{ tool?: string }>;
+        const hasCleared = steps.some(s => s.tool === "q402_clear_delegation");
+        assert.ok(hasCleared, "steps must include q402_clear_delegation");
+        assert.strictEqual(result.success, false, "success must be false");
+        assert.strictEqual(result.statusCode, 402, "statusCode must be 402");
+      } finally {
+        restore();
+        resetSessionSpendUsd();
+      }
+    });
   });
 });

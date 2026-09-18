@@ -167,7 +167,7 @@ describe("AC-2: q402_x402_fetch blocks on 7702-delegated wallet before signing",
       "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
     // Inject a delegation checker that always reports delegated.
-    _setDelegationCheck(async () => true);
+    _setDelegationCheck(async () => "0x2fb2B2D110b6c5664e701666B3741240242bf350");
 
     // Provide a consent token so we pass the consent gate and reach the delegation check.
     const { checkConsent } = await import("../consent.js");
@@ -241,7 +241,7 @@ describe("AC-2: q402_x402_fetch blocks on 7702-delegated wallet before signing",
     process.env["Q402_AGENTIC_PRIVATE_KEY"] =
       "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
-    _setDelegationCheck(async () => true);
+    _setDelegationCheck(async () => "0x2fb2B2D110b6c5664e701666B3741240242bf350");
 
     const { checkConsent } = await import("../consent.js");
     const consentIntent = {
@@ -295,7 +295,7 @@ describe("AC-3: non-delegated wallet passes detection and proceeds to signing", 
       "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
     // Inject a delegation checker that always reports NOT delegated.
-    _setDelegationCheck(async () => false);
+    _setDelegationCheck(async () => null);
 
     const { checkConsent } = await import("../consent.js");
     const consentIntent = {
@@ -354,7 +354,7 @@ describe("AC-4: neither path auto-clears delegation", () => {
     process.env["Q402_AGENTIC_PRIVATE_KEY"] =
       "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
-    _setDelegationCheck(async () => true);
+    _setDelegationCheck(async () => "0x2fb2B2D110b6c5664e701666B3741240242bf350");
 
     const { checkConsent } = await import("../consent.js");
     const consentIntent = {

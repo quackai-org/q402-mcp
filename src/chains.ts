@@ -75,6 +75,9 @@ export interface ChainConfig {
   approxGasCostUsd: number;
   /** Optional human note surfaced by the quote tool. */
   note?: string;
+  /** True when the impl contract supports ERC-1271 isValidSignature, allowing
+   *  EIP-7702-delegated wallets to settle x402 payments without clearing delegation. */
+  erc1271Capable?: boolean;
 }
 
 export const CHAIN_CONFIG: Record<ChainKey, ChainConfig> = {
@@ -233,6 +236,7 @@ export const CHAIN_CONFIG: Record<ChainKey, ChainConfig> = {
     chainId: 8453,
     domainName: "Q402 Base",
     implContract: "0xcb1C912D3849857754A0aE8CAA11b72f5a96142E",
+    erc1271Capable: true,
     gasToken: "ETH",
     explorer: "https://basescan.org",
     // Native Circle USDC + bridged Tether USD on Base, both 6 decimals.
