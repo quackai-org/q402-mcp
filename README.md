@@ -314,11 +314,11 @@ If the endpoint returns 402, the tool responds with `needs_confirmation` and a `
 | `proposalId` | one of | Snapshot proposal ID (`dao` defaults to `"snapshot"` when omitted). |
 | `weights` | optional | Priority weights (0-100 integer each): `riskControl`, `decentralization`, `sustainability`, `communityImpact`. Mutually exclusive with `persona`. |
 | `persona` | optional | Named analysis persona. Mutually exclusive with `weights`. |
-| `language` | optional | BCP-47 language code for result display. Set to the user's conversation language — e.g. `"zh"` for Chinese, `"en"` for English (default). The server uses this to localize response fields; Claude also applies the built-in translation table so results are presented fully in the user's language. |
+| `language` | optional | BCP-47 language code for result display. Set to the user's conversation language, e.g. `"zh"` for Chinese, `"en"` for English (default). The server uses this to localize response fields; Claude also applies the built-in translation table so results are presented fully in the user's language. |
 | `confirm` | required | Must be `true`. Attests user approved the $0.05 USDC charge. |
 | `consentToken` | optional | Two-phase consent token. Omit on first call; re-call with the token if `needs_confirmation` is returned. |
 
-**Language-aware results.** When `language: "zh"` is set, the vote recommendation, dimension names, ratings, and reasoning text are all presented in Chinese — no English enum values are shown to the user.
+**Language-aware results.** When `language: "zh"` is set, the vote recommendation, dimension names, ratings, and reasoning text are all presented in Chinese, with no English enum values shown to the user.
 
 ---
 
