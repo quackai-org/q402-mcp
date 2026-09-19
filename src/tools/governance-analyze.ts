@@ -311,15 +311,19 @@ const TOOL_DESCRIPTION =
   "  • User writes in English → language: \"en\" (or omit; server default)\n" +
   "  • Other languages → use the BCP-47 code (e.g. \"ja\", \"ko\", \"fr\")\n" +
   "The server uses this field to localize certain response fields.\n\n" +
-  "DISPLAY — when presenting results to the user, apply the mapping table below; do NOT expose raw English enum values:\n" +
+  "DISPLAY: when presenting results to the user, apply the mapping table below; do NOT expose raw English enum values:\n" +
   "  vote_choice:  For → 赞成  |  Against → 反对  |  Abstain → 弃权\n" +
   "  rating:       Poor → 差  |  Adequate → 及格  |  Good → 良好  |  Excellent → 优秀\n" +
-  "  dimensions:   Risk Control → 风险管控  |  Decentralization → 去中心化  |  Sustainability → 可持续性\n" +
-  "                Community Impact → 社区影响力  |  Innovation → 创新性\n\n" +
-  "FREE-TEXT LOCALIZATION — when presenting final_reasoning or any dimension justification text, " +
-  "scan for English dimension names (Risk Control, Decentralization, Sustainability, Community Impact, Innovation) " +
+  "  dimensions:   Impact → 影响力  |  Feasibility & Alignment → 可行性与战略契合\n" +
+  "                Value & Sustainability → 价值与可持续性  |  Innovation & Differentiation → 创新与差异化\n" +
+  "                Risk & Mitigation → 风险与缓解\n" +
+  "  weight names: Risk Control → 风险管控  |  Decentralization → 去中心化  |  Sustainability → 可持续性\n" +
+  "                Community Impact → 社区影响力\n\n" +
+  "FREE-TEXT LOCALIZATION: when presenting final_reasoning or any dimension justification text, " +
+  "scan for the English dimension names above (the five returned by the API plus the four weight names) " +
   "and English rating words (Poor, Adequate, Good, Excellent) and replace each with the mapped equivalent above. " +
-  "Example: 'Risk Control(80) rated Good' must become '风险管控(80)评为良好'. " +
+  "Example: 'Feasibility & Alignment rated Excellent' must become '可行性与战略契合评为优秀'; " +
+  "'Risk Control(80) rated Good' must become '风险管控(80)评为良好'. " +
   "No English dimension name or rating word may appear in any user-facing output.\n\n" +
   "TENDENCY → WEIGHTS (interpret the user's stated priority; omit weights entirely if neutral/unstated):\n" +
   "  • Risk-focused / conservative / \"from a risk angle\" → riskControl: 80, others: 50\n" +
