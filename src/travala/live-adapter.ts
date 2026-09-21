@@ -37,7 +37,7 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { checkConsent } from "../consent.js";
+import { consentGate } from "../consent.js";
 import { CONFIG } from "../config.js";
 import type {
   TravalaAdapter,
@@ -355,7 +355,7 @@ export class LiveAdapter implements TravalaAdapter {
       );
     }
 
-    // Two-phase consent check (AC-11). Reuses checkConsent from consent.ts.
+    // Two-phase consent check (AC-11). Reuses consentGate from consent.ts.
     // Intent is bound to hotelId + next_action content so the previewed payment
     // cannot be swapped for a different one.
     const paymentIntent = {
@@ -363,15 +363,15 @@ export class LiveAdapter implements TravalaAdapter {
       hotelId: params.hotelId,
       next_action: paymentRequired.next_action,
     };
-    const consent = checkConsent(paymentIntent, params.paymentConsentToken);
+    const consent = consentGate(paymentIntent, params.paymentConsentToken);
     if (!consent.ok) {
       throw new TravalaPaymentRequiredError(paymentRequired, {
         preview:
           `Travala booking requires payment to complete. ` +
           `Payment details: ${JSON.stringify(paymentRequired.next_action)}. ` +
           `Confirm with the user, then re-call travel_book_hotel with the same args plus ` +
-          `paymentConsentToken="${consent.expected}".`,
-        consentToken: consent.expected,
+          `paymentConsentToken="${consent.newToken}".`,
+        consentToken: consent.newToken,
       });
     }
 

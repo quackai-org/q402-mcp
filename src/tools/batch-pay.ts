@@ -56,7 +56,7 @@ import {
   type PayResult,
 } from "../client.js";
 import type { AvailableWallet, WalletModeRequest } from "./pay.js";
-import { checkConsent } from "../consent.js";
+import { consentGate } from "../consent.js";
 
 const RECIPIENT_LIMIT_TRIAL = 5;
 const RECIPIENT_LIMIT_PAID  = 20;
@@ -148,13 +148,12 @@ export const BatchPayInputSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Two-phase consent. LEAVE UNSET on the first call: the tool will NOT send " +
-        "- it returns status=\"needs_confirmation\" with a `setupHint` preview of " +
-        "every recipient + amount and a `consentToken`. Relay that preview to the " +
-        "user, get an explicit yes, then re-call with the SAME args plus this " +
-        "`consentToken`. The tool re-derives it from the batch it is about to send " +
-        "and refuses on mismatch, so you cannot preview one batch and execute " +
-        "another. Never fabricate a token.",
+      "Two-phase consent. LEAVE UNSET on the first call — the tool returns " +
+        "status=\"needs_confirmation\" with a quote of every recipient + amount and a " +
+        "consentToken. Present that quote to the user and wait for their NEXT INDEPENDENT " +
+        "message confirming the batch. Only then re-call with the SAME args plus this " +
+        "consentToken. The token is single-use, expires in ~120 seconds, and is rejected " +
+        "if consumed within 2 seconds (same-round double-call protection). Never fabricate.",
     ),
 });
 
@@ -301,7 +300,7 @@ export async function runBatchPay(input: BatchPayInput): Promise<BatchPaySummary
     wm: input.walletMode ?? "",
     wid: (input.walletId ?? "").toLowerCase(),
   };
-  const consent = checkConsent(consentIntent, input.consentToken);
+  const consent = consentGate(consentIntent, input.consentToken);
   if (!consent.ok) {
     const total = input.recipients.reduce((s, r) => s + Number(r.amount), 0);
     const lines = input.recipients
@@ -311,12 +310,13 @@ export async function runBatchPay(input: BatchPayInput): Promise<BatchPaySummary
       mode: "none",
       status: "needs_confirmation",
       guardsApplied: [...guardsApplied, "two_phase_consent"],
-      consentToken: consent.expected,
+      consentToken: consent.newToken,
       setupHint:
         `Batch on ${input.chain}: ${input.recipients.length} recipients, total ` +
         `${total} ${input.token}.\n${lines}\n` +
-        `Confirm the full list with the user, then re-call q402_batch_pay with the ` +
-        `same args plus consentToken="${consent.expected}".`,
+        `Present this quote to the user and wait for their explicit approval in a ` +
+        `separate message, then re-call q402_batch_pay with the same args plus ` +
+        `consentToken="${consent.newToken}". Token is single-use, expires in ~120s.`,
     };
   }
 
@@ -913,10 +913,11 @@ export const BATCH_PAY_TOOL = {
     "before calling this tool - the user must approve the full batch, not the individual rows. " +
     "\n\n" +
     "TWO-PHASE CONSENT: confirm:true alone does NOT send. Call this tool first WITHOUT " +
-    "consentToken - it returns status=\"needs_confirmation\" with a `setupHint` preview of every " +
-    "recipient + amount and a `consentToken`, and moves no money. Relay that preview to the user, " +
-    "get an explicit yes, then re-call with the SAME args plus the `consentToken` to execute. The " +
-    "token is re-derived from the batch about to run, so the previewed batch can't be swapped.",
+    "consentToken — it returns status=\"needs_confirmation\" with a quote of every recipient + " +
+    "amount and a consentToken, and moves no money. Present the quote to the user and wait for " +
+    "their NEXT INDEPENDENT message confirming the batch. Only then re-call with the SAME args " +
+    "plus the consentToken. The token is single-use, expires in ~120 seconds, and is rejected " +
+    "if consumed within 2 seconds (same-round double-call protection).",
   inputSchema: {
     type: "object" as const,
     properties: {
@@ -997,10 +998,10 @@ export const BATCH_PAY_TOOL = {
       consentToken: {
         type: "string",
         description:
-          "Two-phase consent. Omit on the FIRST call to get a needs_confirmation preview of " +
-          "every recipient + amount plus a consentToken (no funds move); re-call with the SAME " +
-          "args plus this token to execute. Re-derived from the batch, so the previewed batch " +
-          "cannot be swapped. confirm:true alone does NOT send.",
+          "Two-phase consent. Omit on the FIRST call — get a needs_confirmation quote of every " +
+          "recipient + amount plus a consentToken (no funds move). Present the quote to the user, " +
+          "wait for their NEXT INDEPENDENT message, then re-call with SAME args plus this token. " +
+          "Single-use, expires in ~120s, rejected if consumed within 2s.",
       },
     },
     required: ["chain", "token", "recipients", "confirm"],

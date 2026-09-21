@@ -10,7 +10,7 @@
 
 import { z } from "zod";
 import { CONFIG, resolveApiKey } from "../config.js";
-import { checkConsent } from "../consent.js";
+import { consentGate } from "../consent.js";
 
 const OFT_CHAINS = ["eth", "arbitrum", "mantle", "monad", "xlayer"] as const;
 
@@ -67,7 +67,8 @@ export async function runOftSend(input: z.infer<typeof OftSendInputSchema>) {
     maxFeeRaw: input.maxFeeRaw ?? null,
     wid: (input.walletId ?? "").toLowerCase(),
   };
-  const consent = checkConsent(consentIntent, input.consentToken);
+  const consent = consentGate(consentIntent, input.consentToken);
+  const previewToken = consent.ok ? "" : consent.newToken;
   if (input.confirm !== true || !consent.ok) {
     const walletDesc = typeof input.walletId === "string" && input.walletId.length > 0 ? `wallet ${input.walletId.toLowerCase()}` : "your default Agent Wallet";
     return {
@@ -76,7 +77,7 @@ export async function runOftSend(input: z.infer<typeof OftSendInputSchema>) {
         text:
           `Will bridge ${input.amount} raw USDT0 units from ${input.src} -> ${input.dst} via LayerZero ` +
           `from ${walletDesc}, delivered to the same wallet on ${input.dst}. This MOVES FUNDS on-chain. ` +
-          `Confirm with the user, then re-call with sandbox:false, confirm:true, AND consentToken="${consent.expected}".`,
+          `Confirm with the user, then re-call with sandbox:false, confirm:true, AND consentToken="${previewToken}".`,
       }],
     };
   }

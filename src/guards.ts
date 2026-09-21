@@ -9,7 +9,7 @@
  */
 
 import { ENV } from "./config.js";
-export { checkConsent } from "./consent.js";
+export { consentGate } from "./consent.js";
 
 // Read env dynamically so test overrides to process.env are respected.
 function dynEnv(key: string): string | undefined {

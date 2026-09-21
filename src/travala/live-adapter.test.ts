@@ -17,7 +17,10 @@ import { LiveAdapter, defaultPaymentLeg } from "./live-adapter.js";
 import { getTravelMode, TravalaPaymentRequiredError } from "./adapter.js";
 import type { PaymentRequired, PaymentLeg, PaymentLegResult } from "./adapter.js";
 import type { MCPCallFn, FetchFn } from "./live-adapter.js";
-import { consentTokenFor } from "../consent.js";
+import { issueConsentToken, _setConsentTimingBypass } from "../consent.js";
+
+// These tests verify LiveAdapter behavior, not consent freshness.
+_setConsentTimingBypass(true);
 
 // ── Env setup ─────────────────────────────────────────────────────────────────
 // Set fake credentials so most tests can construct LiveAdapter without errors.
@@ -839,7 +842,7 @@ describe("AC-12: consent passed → payment leg called; result is catchable erro
       hotelId: "h-pay",
       next_action: nextAction,
     };
-    const paymentToken = consentTokenFor(paymentIntent);
+    const paymentToken = issueConsentToken(paymentIntent);
 
     let thrown: unknown;
     try {
@@ -896,7 +899,7 @@ describe("AC-12: consent passed → payment leg called; result is catchable erro
       hotelId: "h-cred",
       next_action: nextAction,
     };
-    const paymentToken = consentTokenFor(paymentIntent);
+    const paymentToken = issueConsentToken(paymentIntent);
 
     let thrown: unknown;
     try {

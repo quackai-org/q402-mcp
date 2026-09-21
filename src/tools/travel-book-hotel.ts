@@ -8,11 +8,11 @@
  * This tool catches it and surfaces the payment consent flow as an additional round-trip.
  *
  * Spend limit: reads TRAVALA_MAX_BOOKING_USD (default: CONFIG.maxAmountPerCallUsd).
- * Reuses consent mechanism from src/consent.ts (checkConsent / consentTokenFor).
+ * Reuses consent mechanism from src/consent.ts (consentGate).
  */
 
 import { z } from "zod";
-import { checkConsent } from "../consent.js";
+import { consentGate } from "../consent.js";
 import { CONFIG } from "../config.js";
 import { getTravelMode } from "../travala/adapter.js";
 import { TravalaPaymentRequiredError } from "../travala/adapter.js";
@@ -76,7 +76,7 @@ export async function runBookHotel(input: BookHotelInput) {
     currency,
     guests: input.guests ?? 1,
   };
-  const consent = checkConsent(intent, input.consentToken);
+  const consent = consentGate(intent, input.consentToken);
   if (!consent.ok) {
     return {
       status: "needs_confirmation",
@@ -85,8 +85,8 @@ export async function runBookHotel(input: BookHotelInput) {
         `${input.checkIn} → ${input.checkOut} (${input.guests ?? 1} guest(s)), ` +
         `total $${input.amount} ${currency}. ` +
         `Confirm with the user, then re-call travel_book_hotel with the same args plus ` +
-        `consentToken="${consent.expected}".`,
-      consentToken: consent.expected,
+        `consentToken="${consent.newToken}".`,
+      consentToken: consent.newToken,
     };
   }
 

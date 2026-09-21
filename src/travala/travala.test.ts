@@ -19,7 +19,10 @@ import { runSearchHotels } from "../tools/travel-search-hotels.js";
 import { runGetQuote } from "../tools/travel-get-quote.js";
 import { runBookHotel } from "../tools/travel-book-hotel.js";
 import { runGetBookingStatus } from "../tools/travel-get-booking-status.js";
-import { consentTokenFor } from "../consent.js";
+import { issueConsentToken, _setConsentTimingBypass } from "../consent.js";
+
+// These tests verify booking flow, not consent freshness.
+_setConsentTimingBypass(true);
 
 // ── AC-3: Mock full-chain ──────────────────────────────────────────────────
 
@@ -105,9 +108,8 @@ describe("travel_book_hotel + travel_get_booking_status (mock chain)", () => {
   test("same booking params → same bookingId (deterministic)", async () => {
     const adapter = new MockAdapter();
     const intent = { t: "travel_book", hotelId: "mock-hotel-001", checkIn: "2025-11-01", checkOut: "2025-11-03", guestName: "Bob", amount: 240, currency: "USD", guests: 1 };
-    const token = consentTokenFor(intent);
-    const r1 = await runBookHotel({ hotelId: "mock-hotel-001", checkIn: "2025-11-01", checkOut: "2025-11-03", guestName: "Bob", amount: 240, consentToken: token });
-    const r2 = await runBookHotel({ hotelId: "mock-hotel-001", checkIn: "2025-11-01", checkOut: "2025-11-03", guestName: "Bob", amount: 240, consentToken: token });
+    const r1 = await runBookHotel({ hotelId: "mock-hotel-001", checkIn: "2025-11-01", checkOut: "2025-11-03", guestName: "Bob", amount: 240, consentToken: issueConsentToken(intent) });
+    const r2 = await runBookHotel({ hotelId: "mock-hotel-001", checkIn: "2025-11-01", checkOut: "2025-11-03", guestName: "Bob", amount: 240, consentToken: issueConsentToken(intent) });
     assert.strictEqual(r1.status, "booked");
     assert.strictEqual(r2.status, "booked");
     const id1 = (r1.receipt as unknown as Record<string, unknown>)["bookingId"];
@@ -123,7 +125,7 @@ describe("travel_book_hotel + travel_get_booking_status (mock chain)", () => {
 describe("travel_book_hotel receipt fields (AC-4)", () => {
   test("receipt contains all required fields", async () => {
     const intent = { t: "travel_book", hotelId: "mock-hotel-002", checkIn: "2025-12-01", checkOut: "2025-12-05", guestName: "Carol", amount: 1000, currency: "USD", guests: 1 };
-    const token = consentTokenFor(intent);
+    const token = issueConsentToken(intent);
     const result = await runBookHotel({
       hotelId: "mock-hotel-002",
       checkIn: "2025-12-01",
@@ -183,7 +185,7 @@ describe("travel_book_hotel two-phase consent (AC-5)", () => {
 
   test("correct consentToken → booking executes", async () => {
     const intent = { t: "travel_book", hotelId: "mock-hotel-003", checkIn: "2025-10-15", checkOut: "2025-10-17", guestName: "Eve", amount: 130, currency: "USD", guests: 1 };
-    const token = consentTokenFor(intent);
+    const token = issueConsentToken(intent);
     const result = await runBookHotel({
       hotelId: "mock-hotel-003",
       checkIn: "2025-10-15",

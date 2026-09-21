@@ -49,6 +49,10 @@ export interface X402AuditRecord {
   fundsMovedUnknown?: boolean;
   /** On-chain settlement txHash from X-PAYMENT-RESPONSE header; null when explicitly absent. */
   txHash?: string | null;
+  /** ISO 8601 timestamp when the consent token was issued (from consent-store). */
+  consentIssuedAt?: string;
+  /** ISO 8601 timestamp when the consent token was consumed to authorise this settlement. */
+  consentConsumedAt?: string;
 }
 
 type StoreMap = Record<string, X402AuditRecord>;

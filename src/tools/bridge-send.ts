@@ -26,7 +26,7 @@
 
 import { z } from "zod";
 import { CONFIG, resolveApiKey } from "../config.js";
-import { checkConsent } from "../consent.js";
+import { consentGate } from "../consent.js";
 
 export const BridgeSendInputSchema = z.object({
   src: z.enum(["eth", "avax", "arbitrum"]).describe("Source chain"),
@@ -52,11 +52,11 @@ export const BridgeSendInputSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Two-phase consent. LEAVE UNSET on the first live call: the tool previews " +
-        "the bridge (without moving funds) and returns a `consentToken`. Relay the " +
-        "preview to the user, get an explicit yes, then re-call with sandbox:false, " +
-        "confirm:true, AND this consentToken. The tool re-derives it from the bridge " +
-        "it is about to execute (src, dst, amount, feeToken) and refuses on mismatch.",
+      "Two-phase consent. LEAVE UNSET on the first live call — the tool previews " +
+        "the bridge (without moving funds) and returns a consentToken. Present the " +
+        "quote to the user and wait for their NEXT INDEPENDENT message. Then re-call " +
+        "with sandbox:false, confirm:true, AND this consentToken. Single-use, expires " +
+        "in ~120 seconds, rejected if consumed within 2 seconds.",
     ),
 }).refine(d => d.src !== d.dst, {
   // Local Zod rejection saves a network round-trip + a Q402 backend log
@@ -75,11 +75,12 @@ export const BRIDGE_SEND_TOOL = {
     "live Multichain API key is configured. The server signs ccipSend with the Agent Wallet's " +
     "encrypted PK, auto-funds source-chain gas from the user's Gas Tank, and debits both the auto- " +
     "fund cost and the CCIP fee per the bridge's settled receipt. " +
-    "TWO-PHASE CONSENT - a LIVE bridge (sandbox: false) refuses to execute unless BOTH confirm: true " +
-    "AND a matching consentToken are set. Call it first WITHOUT consentToken to get a preview (src, " +
-    "dst, amount, fee token) plus a consentToken; show that to the user, get explicit approval, THEN " +
-    "re-call with sandbox: false, confirm: true, AND that consentToken. The token is re-derived from " +
-    "the bridge about to run, so the previewed bridge can't be swapped. Never fabricate a token. " +
+    "TWO-PHASE CONSENT - a LIVE bridge (sandbox: false) requires BOTH confirm: true AND a valid " +
+    "consentToken. Call first WITHOUT consentToken to get a preview (src, dst, amount, fee token) " +
+    "plus a consentToken; present that quote to the user and wait for their NEXT INDEPENDENT message " +
+    "confirming the bridge. Then re-call with sandbox: false, confirm: true, AND that consentToken. " +
+    "The token is single-use, expires in ~120 seconds, and is rejected if consumed within 2 seconds " +
+    "(same-round double-call protection). Never fabricate a token. " +
     "Recommended flow: q402_bridge_quote first → preview + confirm cost with the user → " +
     "q402_bridge_send with sandbox: false, confirm: true, consentToken. Live mode needs a " +
     "Multichain subscription; trial keys are rejected. If the bridge returns AGENT_WALLET_DELEGATED, " +
@@ -131,9 +132,9 @@ export const BRIDGE_SEND_TOOL = {
       consentToken: {
         type: "string" as const,
         description:
-          "Two-phase consent token. Leave unset on the first live call to get a preview + " +
-          "token; re-call with confirm:true AND this token after the user approves. Bound to " +
-          "(src, dst, amount, feeToken) - re-derived server-side-of-the-tool and refused on mismatch.",
+          "Two-phase consent. Leave unset on the first live call — get a preview plus token. " +
+          "Present the quote to the user, wait for their NEXT INDEPENDENT message, then re-call " +
+          "with confirm:true AND this token. Single-use, expires in ~120s, rejected within 2s.",
       },
     },
     required: ["src", "dst", "amount"],
@@ -198,7 +199,8 @@ export async function runBridgeSend(input: z.infer<typeof BridgeSendInputSchema>
     // Bind the funding wallet too (see q402_pay).
     wid: (input.walletId ?? "").toLowerCase(),
   };
-  const consent = checkConsent(consentIntent, input.consentToken);
+  const consent = consentGate(consentIntent, input.consentToken);
+  const previewToken = consent.ok ? "" : consent.newToken;
   if (input.confirm !== true || !consent.ok) {
     const walletDesc =
       typeof input.walletId === "string" && input.walletId.length > 0
@@ -211,8 +213,9 @@ export async function runBridgeSend(input: z.infer<typeof BridgeSendInputSchema>
         text:
           `Will bridge ${input.amount} raw USDC units from ${input.src} -> ${input.dst} ` +
           `via Chainlink CCIP from ${walletDesc} (fee paid in ${fee}). This MOVES FUNDS ` +
-          `on-chain. Confirm with the user, then re-call with sandbox:false, confirm:true, ` +
-          `AND consentToken="${consent.expected}".`,
+          `on-chain. Present this quote to the user and wait for their explicit approval in a ` +
+          `separate message, then re-call with sandbox:false, confirm:true, ` +
+          `AND consentToken="${previewToken}". Token is single-use, expires in ~120s.`,
       }],
     };
   }
