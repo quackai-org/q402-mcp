@@ -38,7 +38,7 @@ export const GovernanceAnalyzeInputSchema = z.object({
     "MUST be true. This tool triggers a paid x402 request; caller attests the user approved.",
   ),
   consentToken: z.string().optional().describe(
-    "Two-phase consent. Omit on first call — the tool returns needs_confirmation with a quote of " +
+    "Two-phase consent. Omit on first call. The tool returns needs_confirmation with a quote of " +
     "the $0.05 USDC charge and a consentToken. Present the quote to the user and wait for their " +
     "NEXT INDEPENDENT message. Then re-call with the SAME args plus this token. Single-use, " +
     "expires in ~120s, rejected if consumed within 2s of issuance.",
@@ -393,7 +393,7 @@ export const GOVERNANCE_ANALYZE_TOOL = {
       consentToken: {
         type: "string",
         description:
-          "Two-phase consent. Omit on the FIRST call — the tool returns needs_confirmation with " +
+          "Two-phase consent. Omit on the FIRST call. The tool returns needs_confirmation with " +
           "a preview quoting the $0.05 USDC charge and a consentToken. Present that quote to " +
           "the user and wait for their NEXT INDEPENDENT message. Then re-call with the SAME " +
           "args plus this token. Single-use, expires in ~120s, rejected if consumed within 2s.",

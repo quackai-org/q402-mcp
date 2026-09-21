@@ -52,7 +52,7 @@ export const BridgeSendInputSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Two-phase consent. LEAVE UNSET on the first live call — the tool previews " +
+      "Two-phase consent. LEAVE UNSET on the first live call. The tool previews " +
         "the bridge (without moving funds) and returns a consentToken. Present the " +
         "quote to the user and wait for their NEXT INDEPENDENT message. Then re-call " +
         "with sandbox:false, confirm:true, AND this consentToken. Single-use, expires " +
@@ -132,7 +132,7 @@ export const BRIDGE_SEND_TOOL = {
       consentToken: {
         type: "string" as const,
         description:
-          "Two-phase consent. Leave unset on the first live call — get a preview plus token. " +
+          "Two-phase consent. Leave unset on the first live call. Get a preview plus token. " +
           "Present the quote to the user, wait for their NEXT INDEPENDENT message, then re-call " +
           "with confirm:true AND this token. Single-use, expires in ~120s, rejected within 2s.",
       },
