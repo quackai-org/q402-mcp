@@ -752,6 +752,73 @@ describe("AC-9: audit records", () => {
       restore();
     }
   });
+
+  test("AC-6: consentAgeMs and consentFast computed from timestamps (normal human pace)", () => {
+    const auditPath = makeTmpAuditPath();
+    // Mirrors the real session record from AC-6 verification: 15.6s human-pace confirm.
+    const record: X402AuditRecord = {
+      id: "x4_b1a35187bfbeaed11ac6e44f",
+      timestamp: "2026-09-21T05:02:34.531Z",
+      url: "https://x402.example/governance",
+      method: "GET",
+      payTo: SELLER,
+      asset: BASE_USDC,
+      network: "base",
+      amountAtomic: "50000",
+      amountUsd: "0.05",
+      status: "settled",
+      consentIssuedAt:   "2026-09-21T05:02:34.531Z",
+      consentConsumedAt: "2026-09-21T05:02:50.126Z",
+    };
+    saveX402AuditRecord(record, auditPath);
+    const saved = readX402Audit(auditPath)[record.id]!;
+    assert.strictEqual(saved.consentAgeMs, 15595, "consentAgeMs = consumed - issued");
+    assert.strictEqual(saved.consentFast, false, "15.6s gap is not fast");
+  });
+
+  test("AC-6: consentFast:true when token consumed within 2s", () => {
+    const auditPath = makeTmpAuditPath();
+    const issued   = "2026-09-21T06:00:00.000Z";
+    const consumed = "2026-09-21T06:00:01.500Z"; // 1500ms < 2000ms threshold
+    const record: X402AuditRecord = {
+      id: "x4_fast_test_001",
+      timestamp: issued,
+      url: "https://x402.example/api",
+      method: "GET",
+      payTo: SELLER,
+      asset: BASE_USDC,
+      network: "base",
+      amountAtomic: "50000",
+      amountUsd: "0.05",
+      status: "settled",
+      consentIssuedAt:   issued,
+      consentConsumedAt: consumed,
+    };
+    saveX402AuditRecord(record, auditPath);
+    const saved = readX402Audit(auditPath)[record.id]!;
+    assert.strictEqual(saved.consentAgeMs, 1500, "consentAgeMs = 1500ms");
+    assert.strictEqual(saved.consentFast, true, "1.5s gap is fast (below 2s threshold)");
+  });
+
+  test("AC-6: consentAgeMs absent when timestamps not set", () => {
+    const auditPath = makeTmpAuditPath();
+    const record: X402AuditRecord = {
+      id: "x4_no_consent_001",
+      timestamp: new Date().toISOString(),
+      url: "https://x402.example/api",
+      method: "GET",
+      payTo: SELLER,
+      asset: BASE_USDC,
+      network: "base",
+      amountAtomic: "50000",
+      amountUsd: "0.05",
+      status: "settled",
+    };
+    saveX402AuditRecord(record, auditPath);
+    const saved = readX402Audit(auditPath)[record.id]!;
+    assert.strictEqual(saved.consentAgeMs, undefined, "consentAgeMs absent without timestamps");
+    assert.strictEqual(saved.consentFast, undefined, "consentFast absent without timestamps");
+  });
 });
 
 // ── audit store: size/count cap and degradation ──────────────────────────────

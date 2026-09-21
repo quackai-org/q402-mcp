@@ -53,6 +53,10 @@ export interface X402AuditRecord {
   consentIssuedAt?: string;
   /** ISO 8601 timestamp when the consent token was consumed to authorise this settlement. */
   consentConsumedAt?: string;
+  /** Milliseconds between token issuance and consumption. Null when either timestamp is absent. */
+  consentAgeMs?: number | null;
+  /** True when the token was consumed within 2 seconds of issuance (same-round double-call threshold). Null when consentAgeMs is unavailable. */
+  consentFast?: boolean | null;
 }
 
 type StoreMap = Record<string, X402AuditRecord>;
@@ -87,7 +91,14 @@ function writeX402Audit(map: StoreMap, path = X402_AUDIT_PATH): void {
 
 export function saveX402AuditRecord(record: X402AuditRecord, path = X402_AUDIT_PATH): void {
   const map = readX402Audit(path);
-  map[record.id] = record;
+  const toSave: X402AuditRecord = { ...record };
+  if (toSave.consentIssuedAt && toSave.consentConsumedAt) {
+    const ageMs =
+      new Date(toSave.consentConsumedAt).getTime() - new Date(toSave.consentIssuedAt).getTime();
+    toSave.consentAgeMs = ageMs;
+    toSave.consentFast = ageMs < 2000;
+  }
+  map[toSave.id] = toSave;
 
   const keys = Object.keys(map);
   if (keys.length > MAX_STORE_ENTRIES) {
