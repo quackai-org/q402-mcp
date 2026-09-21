@@ -269,7 +269,7 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 | Per-session cumulative cap | `Q402_X402_SESSION_CAP_USD` | $5 |
 | Two-phase consent | `consentToken` | required on payment |
 
-Two-phase consent flow: the first call (without `consentToken`) returns `needs_confirmation` with a preview quoting the exact amount and recipient plus a `consentToken`. **Present the quote to the user verbatim and wait for their next independent message confirming payment.** Only then re-call with the same arguments plus the `consentToken`. The token is **single-use**, expires in **~120 seconds**, and is rejected if consumed within 2 seconds of issuance (same-round double-call protection — this is a threshold, not a proof of human confirmation). Never re-call in the same conversation turn without a separate user confirmation message.
+Two-phase consent flow: the first call (without `consentToken`) returns `needs_confirmation` with a preview quoting the exact amount and recipient plus a `consentToken`. **Present the quote to the user verbatim and wait for their next independent message confirming payment.** Only then re-call with the same arguments plus the `consentToken`. The token is **single-use**, expires in **~120 seconds**, and is rejected if consumed within 2 seconds of issuance (same-round double-call protection: a timing threshold, not a proof of human confirmation). Never re-call in the same conversation turn without a separate user confirmation message.
 
 **Result outcomes — read before summarizing to users.**
 

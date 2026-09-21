@@ -148,7 +148,7 @@ export const BatchPayInputSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Two-phase consent. LEAVE UNSET on the first call — the tool returns " +
+      "Two-phase consent. LEAVE UNSET on the first call. The tool returns " +
         "status=\"needs_confirmation\" with a quote of every recipient + amount and a " +
         "consentToken. Present that quote to the user and wait for their NEXT INDEPENDENT " +
         "message confirming the batch. Only then re-call with the SAME args plus this " +
@@ -913,7 +913,7 @@ export const BATCH_PAY_TOOL = {
     "before calling this tool - the user must approve the full batch, not the individual rows. " +
     "\n\n" +
     "TWO-PHASE CONSENT: confirm:true alone does NOT send. Call this tool first WITHOUT " +
-    "consentToken — it returns status=\"needs_confirmation\" with a quote of every recipient + " +
+    "consentToken. It returns status=\"needs_confirmation\" with a quote of every recipient + " +
     "amount and a consentToken, and moves no money. Present the quote to the user and wait for " +
     "their NEXT INDEPENDENT message confirming the batch. Only then re-call with the SAME args " +
     "plus the consentToken. The token is single-use, expires in ~120 seconds, and is rejected " +
@@ -998,7 +998,7 @@ export const BATCH_PAY_TOOL = {
       consentToken: {
         type: "string",
         description:
-          "Two-phase consent. Omit on the FIRST call — get a needs_confirmation quote of every " +
+          "Two-phase consent. Omit on the FIRST call. Get a needs_confirmation quote of every " +
           "recipient + amount plus a consentToken (no funds move). Present the quote to the user, " +
           "wait for their NEXT INDEPENDENT message, then re-call with SAME args plus this token. " +
           "Single-use, expires in ~120s, rejected if consumed within 2s.",

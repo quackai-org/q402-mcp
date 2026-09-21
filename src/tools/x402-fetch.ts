@@ -142,7 +142,7 @@ export const X402FetchInputSchema = z.object({
   ),
   consentToken: z.string().optional().describe(
     "Two-phase payment consent. Omit on first call when you don't yet know a 402 will be " +
-    "returned — the tool responds with needs_confirmation + a token if a 402 is encountered. " +
+    "returned. If a 402 is encountered, the tool responds with needs_confirmation + a token. " +
     "Re-call with the same args plus this token to authorise the payment.",
   ),
 });
@@ -903,7 +903,7 @@ export const X402_FETCH_TOOL = {
     "\n\n" +
     "GUARDS: per-call max-amount cap (Q402_MAX_AMOUNT_PER_CALL), per-session cumulative " +
     "cap (Q402_X402_SESSION_CAP_USD, default $5), and two-phase consent. " +
-    "TWO-PHASE CONSENT: call first WITHOUT consentToken — the tool returns " +
+    "TWO-PHASE CONSENT: call first WITHOUT consentToken. The tool returns " +
     "needs_confirmation with a preview quoting the exact amount/recipient and a consentToken. " +
     "Present that quote to the user verbatim. Wait for the user's NEXT INDEPENDENT message " +
     "confirming payment. Only then re-call with the SAME args plus that consentToken. " +
@@ -964,7 +964,7 @@ export const X402_FETCH_TOOL = {
       consentToken: {
         type: "string",
         description:
-          "Two-phase consent. Omit on the FIRST call — the tool returns needs_confirmation with " +
+          "Two-phase consent. Omit on the FIRST call. The tool returns needs_confirmation with " +
           "a preview of the exact payment and a consentToken. Present the quote to the user, " +
           "get their explicit approval in a SEPARATE message, then re-call with the SAME args " +
           "plus this token. The token is single-use, expires in ~120s, and is rejected if " +

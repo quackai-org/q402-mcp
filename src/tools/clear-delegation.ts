@@ -76,7 +76,7 @@ export const ClearDelegationInputSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Two-phase consent. LEAVE THIS UNSET on the first call — the tool does " +
+      "Two-phase consent. LEAVE THIS UNSET on the first call. The tool does " +
         "NOT broadcast; it returns status=\"needs_confirmation\" with a preview " +
         "(including gas cost info) and a consentToken. Present the preview to " +
         "the user and wait for their NEXT INDEPENDENT message approving the clear. " +
@@ -533,7 +533,7 @@ export const CLEAR_DELEGATION_TOOL = {
       consentToken: {
         type: "string",
         description:
-          "Two-phase consent. Omit on the first call — get a needs_confirmation " +
+          "Two-phase consent. Omit on the first call. Get a needs_confirmation " +
           "preview plus a consentToken (no broadcast). Present the preview to the " +
           "user, wait for their NEXT INDEPENDENT message, then re-call with SAME " +
           "args plus this token. Single-use, expires in ~120s, rejected within 2s.",

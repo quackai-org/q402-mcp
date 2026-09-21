@@ -1040,7 +1040,7 @@ export const PAY_TOOL = {
     "this tool. " +
     "\n\n" +
     "TWO-PHASE CONSENT: confirm:true alone does NOT send. Call this tool first " +
-    "WITHOUT consentToken — it returns status=\"needs_confirmation\" with a quote " +
+    "WITHOUT consentToken. It returns status=\"needs_confirmation\" with a quote " +
     "of the exact payment and a consentToken, and moves no money. Present that " +
     "quote to the user verbatim and wait for their NEXT INDEPENDENT message " +
     "confirming payment. Only then re-call with the SAME args plus that consentToken. " +
@@ -1143,7 +1143,7 @@ export const PAY_TOOL = {
       consentToken: {
         type: "string",
         description:
-          "Two-phase consent. Omit on the FIRST call — get a needs_confirmation quote plus a " +
+          "Two-phase consent. Omit on the FIRST call. Get a needs_confirmation quote plus a " +
           "consentToken (no funds move). Present the quote to the user, wait for their NEXT " +
           "INDEPENDENT message, then re-call with the SAME args plus this token. Single-use, " +
           "expires in ~120s, rejected if consumed within 2s (same-round double-call protection).",

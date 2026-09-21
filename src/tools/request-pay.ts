@@ -30,7 +30,7 @@ export const RequestPayInputSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Two-phase consent. Call FIRST WITHOUT it — the tool moves no money and returns " +
+      "Two-phase consent. Call FIRST WITHOUT it. The tool moves no money and returns " +
         "status=\"needs_consent\" with a preview of the exact payment plus a consentToken. " +
         "Present the preview to the user and wait for their NEXT INDEPENDENT message. Then " +
         "re-call with the SAME requestId plus this consentToken. Single-use, expires in ~120s, " +
@@ -235,7 +235,7 @@ export const REQUEST_PAY_TOOL = {
       consentToken: {
         type: "string" as const,
         description:
-          "Two-phase consent. Omit on the FIRST call — get a needs_confirmation preview plus " +
+          "Two-phase consent. Omit on the FIRST call. Get a needs_confirmation preview plus " +
           "a consentToken (no funds move). Present the preview to the user, wait for their " +
           "NEXT INDEPENDENT message, then re-call with the SAME requestId plus this token. " +
           "Single-use, expires in ~120s, rejected if consumed within 2s.",

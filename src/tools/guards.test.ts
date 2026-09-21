@@ -315,7 +315,7 @@ describe("Consent token freshness (AC-1 through AC-4)", () => {
     assert.match(t2, /^ct_[0-9a-f]{16}$/, "token format ct_<16hex>");
   });
 
-  test("AC-2: token is one-time — second consumption returns 'consumed'", () => {
+  test("AC-2: one-time token, second consumption returns 'consumed'", () => {
     _setConsentTimingBypass(true);
     const token = issueConsentToken(INTENT, tmpStore);
     const r1 = consentGate(INTENT, token, tmpStore);
