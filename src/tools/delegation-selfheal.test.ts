@@ -22,6 +22,10 @@ import {
   _setDelegationCheck,
 } from "./x402-fetch.js";
 import { CONFIG } from "../config.js";
+import { issueConsentToken, _setConsentTimingBypass } from "../consent.js";
+
+// These tests verify delegation detection, not consent freshness.
+_setConsentTimingBypass(true);
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -77,8 +81,7 @@ describe("AC-1: q402_pay x402-path recommendedAction includes all three componen
     cfgMut["multichainApiKey"]      = "q402_live_test_key";
     cfgMut["realPaymentsRequested"] = true;
 
-    const { runPay }      = await import("./pay.js");
-    const { checkConsent } = await import("../consent.js");
+    const { runPay } = await import("./pay.js");
 
     const payArgs = {
       to:         SELLER,
@@ -170,7 +173,6 @@ describe("AC-2: q402_x402_fetch blocks on 7702-delegated wallet before signing",
     _setDelegationCheck(async () => "0x2fb2B2D110b6c5664e701666B3741240242bf350");
 
     // Provide a consent token so we pass the consent gate and reach the delegation check.
-    const { checkConsent } = await import("../consent.js");
     const consentIntent = {
       t: "x402_fetch",
       url: "https://x402.example/delegated-test",
@@ -180,7 +182,7 @@ describe("AC-2: q402_x402_fetch blocks on 7702-delegated wallet before signing",
       asset: BASE_USDC.toLowerCase(),
       network: "base",
     };
-    const { expected: token } = checkConsent(consentIntent, undefined);
+    const token = issueConsentToken(consentIntent);
 
     let signWasCalled = false;
     // Only the 402 response is needed. A second fetch (the retry) would
@@ -243,7 +245,6 @@ describe("AC-2: q402_x402_fetch blocks on 7702-delegated wallet before signing",
 
     _setDelegationCheck(async () => "0x2fb2B2D110b6c5664e701666B3741240242bf350");
 
-    const { checkConsent } = await import("../consent.js");
     const consentIntent = {
       t: "x402_fetch",
       url: "https://x402.example/delegated-audit",
@@ -253,7 +254,7 @@ describe("AC-2: q402_x402_fetch blocks on 7702-delegated wallet before signing",
       asset: BASE_USDC.toLowerCase(),
       network: "base",
     };
-    const { expected: token } = checkConsent(consentIntent, undefined);
+    const token = issueConsentToken(consentIntent);
 
     const restore = stubFetch([
       () => Promise.resolve(makeResponse(402, make402Body())),
@@ -297,7 +298,6 @@ describe("AC-3: non-delegated wallet passes detection and proceeds to signing", 
     // Inject a delegation checker that always reports NOT delegated.
     _setDelegationCheck(async () => null);
 
-    const { checkConsent } = await import("../consent.js");
     const consentIntent = {
       t: "x402_fetch",
       url: "https://x402.example/normal-wallet",
@@ -307,7 +307,7 @@ describe("AC-3: non-delegated wallet passes detection and proceeds to signing", 
       asset: BASE_USDC.toLowerCase(),
       network: "base",
     };
-    const { expected: token } = checkConsent(consentIntent, undefined);
+    const token = issueConsentToken(consentIntent);
 
     // Stub two fetches: 402, then 200 (settlement succeeds)
     const restore = stubFetch([
@@ -356,7 +356,6 @@ describe("AC-4: neither path auto-clears delegation", () => {
 
     _setDelegationCheck(async () => "0x2fb2B2D110b6c5664e701666B3741240242bf350");
 
-    const { checkConsent } = await import("../consent.js");
     const consentIntent = {
       t: "x402_fetch",
       url: "https://x402.example/ac4-test",
@@ -366,7 +365,7 @@ describe("AC-4: neither path auto-clears delegation", () => {
       asset: BASE_USDC.toLowerCase(),
       network: "base",
     };
-    const { expected: token } = checkConsent(consentIntent, undefined);
+    const token = issueConsentToken(consentIntent);
 
     const restore = stubFetch([
       () => Promise.resolve(makeResponse(402, make402Body())),

@@ -29,7 +29,7 @@
 import { z } from "zod";
 import { Wallet, JsonRpcProvider } from "ethers";
 import { CONFIG, detectAgenticModes, resolveApiKey } from "../config.js";
-import { checkConsent } from "../consent.js";
+import { consentGate } from "../consent.js";
 import { CHAIN_CONFIG, CHAIN_KEYS, type ChainConfig, type ChainKey } from "../chains.js";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -76,13 +76,12 @@ export const ClearDelegationInputSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Two-phase consent. LEAVE THIS UNSET on the first call: the tool does " +
-        "NOT broadcast - it returns status=\"needs_confirmation\" with a " +
-        "human-readable `preview` (including whether Ethereum bills your Gas " +
-        "Tank) and a `consentToken`. Relay the preview to the user; only after " +
-        "they approve, re-call with the SAME args plus this token. The token is " +
-        "re-derived from the resolved chain + wallet, so a previewed clear can't " +
-        "be swapped for a different one.",
+      "Two-phase consent. LEAVE THIS UNSET on the first call — the tool does " +
+        "NOT broadcast; it returns status=\"needs_confirmation\" with a preview " +
+        "(including gas cost info) and a consentToken. Present the preview to " +
+        "the user and wait for their NEXT INDEPENDENT message approving the clear. " +
+        "Then re-call with the SAME args plus this token. Single-use, expires in " +
+        "~120 seconds, rejected if consumed within 2 seconds.",
     ),
 });
 
@@ -205,7 +204,7 @@ export async function runClearDelegation(input: ClearDelegationInput): Promise<C
     mode,
     walletId: resolvedWalletId,
   };
-  const consent = checkConsent(consentIntent, input.consentToken);
+  const consent = consentGate(consentIntent, input.consentToken);
   if (!consent.ok) {
     const gasNote =
       input.chain === "eth"
@@ -228,8 +227,9 @@ export async function runClearDelegation(input: ClearDelegationInput): Promise<C
           }. ` +
           `This sends a real on-chain transaction. ${gasNote} ` +
           "The next q402_pay on this chain re-creates the delegation. " +
-          "Confirm with the user, then re-call with the same args plus this consentToken.",
-        consentToken: consent.expected,
+          "Present this to the user and wait for their explicit approval in a separate message, " +
+          "then re-call with the same args plus this consentToken. Token is single-use, expires in ~120s.",
+        consentToken: consent.newToken,
       },
     };
   }
@@ -517,9 +517,11 @@ export const CLEAR_DELEGATION_TOOL = {
     "(Q402_AGENTIC_PRIVATE_KEY) sign LOCALLY; agentic-server (Mode C) holds only " +
     "a live apiKey and the server signs with the encrypted Agent Wallet key. " +
     "Q402 sponsors the on-chain TX on every chain EXCEPT Ethereum, where the " +
-    "gas is billed to your Gas Tank. Two-phase consent: call once WITHOUT " +
-    "consentToken to get a preview + token (no broadcast), then re-call with " +
-    "the same args plus that consentToken to execute.",
+    "gas is billed to your Gas Tank. Two-phase consent: call first WITHOUT " +
+    "consentToken to get a preview plus a token (no broadcast). Present the " +
+    "preview to the user and wait for their NEXT INDEPENDENT message, then " +
+    "re-call with the same args plus that consentToken. Token is single-use, " +
+    "expires in ~120 seconds, rejected if consumed within 2 seconds.",
   inputSchema: {
     type: "object" as const,
     properties: {
@@ -531,9 +533,10 @@ export const CLEAR_DELEGATION_TOOL = {
       consentToken: {
         type: "string",
         description:
-          "Two-phase consent. Omit on the first call to get a needs_confirmation " +
-          "preview + consentToken (no broadcast); re-call with the SAME args plus " +
-          "this token to execute. Re-derived from the resolved chain + wallet.",
+          "Two-phase consent. Omit on the first call — get a needs_confirmation " +
+          "preview plus a consentToken (no broadcast). Present the preview to the " +
+          "user, wait for their NEXT INDEPENDENT message, then re-call with SAME " +
+          "args plus this token. Single-use, expires in ~120s, rejected within 2s.",
       },
       walletMode: {
         type: "string",

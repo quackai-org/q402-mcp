@@ -19,7 +19,7 @@
 import { hexlify, randomBytes } from "ethers";
 import { z } from "zod";
 import { CONFIG, resolveApiKey } from "../config.js";
-import { checkConsent } from "../consent.js";
+import { consentGate } from "../consent.js";
 
 export const YieldDepositInputSchema = z.object({
   chain: z
@@ -248,7 +248,8 @@ export async function runYieldDeposit(input: z.infer<typeof YieldDepositInputSch
     protocol: input.protocol ?? null,
     walletId: walletId ?? null,
   };
-  const consent = checkConsent(consentIntent, input.consentToken);
+  const consent = consentGate(consentIntent, input.consentToken);
+  const previewToken = consent.ok ? "" : consent.newToken;
   if (input.confirm !== true || !consent.ok) {
     const walletDesc = walletId ? `wallet ${walletId}` : "your default Agent Wallet";
     const venueDesc = input.protocol ? `the ${input.protocol} market` : "a vetted lending vault";
@@ -258,7 +259,7 @@ export async function runYieldDeposit(input: z.infer<typeof YieldDepositInputSch
         text:
           `Will supply ${input.amount} ${input.token} into ${venueDesc} on ${input.chain} from ` +
           `${walletDesc}. This MOVES FUNDS. Confirm with the user, then re-call with ` +
-          `confirm:true AND consentToken="${consent.expected}".`,
+          `confirm:true AND consentToken="${previewToken}".`,
       }],
     };
   }

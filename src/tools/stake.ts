@@ -18,7 +18,7 @@
 
 import { z } from "zod";
 import { CONFIG, resolveApiKey } from "../config.js";
-import { checkConsent } from "../consent.js";
+import { consentGate } from "../consent.js";
 import { fetchStakePositions, type StakePositionRecord } from "./stake-positions.js";
 
 /** Lock tiers (display only - the staking contract validates + reverts on an unknown tier). */
@@ -198,11 +198,12 @@ export async function runStake(input: z.infer<typeof StakeInputSchema>) {
   // can't silently grow between preview and confirm. For a fixed amount the amount
   // itself is the binding.
   const consentIntent = { t: "q-stake", amount: isMax ? "max" : input.amount, stakeType, walletId: walletId ?? null, ...(isMax && cap ? { cap } : {}) };
-  const consent = checkConsent(consentIntent, input.consentToken);
+  const consent = consentGate(consentIntent, input.consentToken);
+  const previewToken = consent.ok ? "" : consent.newToken;
   if (input.confirm !== true || !consent.ok) {
     const walletDesc = walletId ? `wallet ${walletId}` : "your default Agent Wallet";
     return {
-      content: [{ type: "text" as const, text: `Will stake ${previewAmount} Q into tier ${stakeType} (${tier?.lockDays}d lock, ~${tier?.aprPct}% APR) on BNB from ${walletDesc}. This MOVES FUNDS. Confirm with the user, then re-call with confirm:true AND consentToken="${consent.expected}".` }],
+      content: [{ type: "text" as const, text: `Will stake ${previewAmount} Q into tier ${stakeType} (${tier?.lockDays}d lock, ~${tier?.aprPct}% APR) on BNB from ${walletDesc}. This MOVES FUNDS. Confirm with the user, then re-call with confirm:true AND consentToken="${previewToken}".` }],
     };
   }
 
@@ -277,13 +278,14 @@ export async function runUnstake(input: z.infer<typeof UnstakeInputSchema>) {
   const consentIntent = all
     ? { t: "q-unstake-all", walletId: walletId ?? null, iths: targetIths }
     : { t: "q-unstake", walletId: walletId ?? null, ith };
-  const consent = checkConsent(consentIntent, input.consentToken);
+  const consent = consentGate(consentIntent, input.consentToken);
+  const previewToken = consent.ok ? "" : consent.newToken;
   if (input.confirm !== true || !consent.ok) {
     const what = all
       ? `unstake ${targets.length} matured position(s) totalling ~${totalQ} Q (one tx each)`
       : `unstake the matured position at index ${ith} (~${totalQ} Q)`;
     return {
-      content: [{ type: "text" as const, text: `Will ${what} from ${walletId ? `wallet ${walletId}` : "your default Agent Wallet"} on BNB. This MOVES FUNDS. Confirm with the user, then re-call with confirm:true AND consentToken="${consent.expected}".` }],
+      content: [{ type: "text" as const, text: `Will ${what} from ${walletId ? `wallet ${walletId}` : "your default Agent Wallet"} on BNB. This MOVES FUNDS. Confirm with the user, then re-call with confirm:true AND consentToken="${previewToken}".` }],
     };
   }
 

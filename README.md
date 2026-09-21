@@ -269,7 +269,7 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 | Per-session cumulative cap | `Q402_X402_SESSION_CAP_USD` | $5 |
 | Two-phase consent | `consentToken` | required on payment |
 
-Two-phase consent flow: the first call (without `consentToken`) returns `needs_confirmation` and a preview of the amount and recipient. Re-call with the same arguments plus the returned `consentToken` to authorize the payment.
+Two-phase consent flow: the first call (without `consentToken`) returns `needs_confirmation` with a preview quoting the exact amount and recipient plus a `consentToken`. **Present the quote to the user verbatim and wait for their next independent message confirming payment.** Only then re-call with the same arguments plus the `consentToken`. The token is **single-use**, expires in **~120 seconds**, and is rejected if consumed within 2 seconds of issuance (same-round double-call protection — this is a threshold, not a proof of human confirmation). Never re-call in the same conversation turn without a separate user confirmation message.
 
 **Result outcomes — read before summarizing to users.**
 
@@ -293,7 +293,7 @@ Two-phase consent flow: the first call (without `consentToken`) returns `needs_c
 }
 ```
 
-If the endpoint returns 402, the tool responds with `needs_confirmation` and a `consentToken`. Re-call with those same arguments plus the `consentToken` to authorize payment.
+If the endpoint returns 402, the tool responds with `needs_confirmation` and a `consentToken`. Present the quote to the user verbatim and wait for their next independent message. Re-call with those same arguments plus the `consentToken` to authorize payment. The token is single-use and expires in ~120 seconds.
 
 **Requirements.** `Q402_ENABLE_REAL_PAYMENTS=1` plus a local signing key (`Q402_AGENTIC_PRIVATE_KEY` or `Q402_PRIVATE_KEY`). The signed authorization goes directly to the seller's facilitator endpoint; the Q402 relay is not involved in this path.
 
@@ -316,7 +316,7 @@ If the endpoint returns 402, the tool responds with `needs_confirmation` and a `
 | `persona` | optional | Named analysis persona. Mutually exclusive with `weights`. |
 | `language` | optional | BCP-47 language code for result display. Set to the user's conversation language, e.g. `"zh"` for Chinese, `"en"` for English (default). The server uses this to localize response fields; Claude also applies the built-in translation table so results are presented fully in the user's language. |
 | `confirm` | required | Must be `true`. Attests user approved the $0.05 USDC charge. |
-| `consentToken` | optional | Two-phase consent token. Omit on first call; re-call with the token if `needs_confirmation` is returned. |
+| `consentToken` | optional | Two-phase consent. Omit on first call; present the quote to the user and wait for their next independent message, then re-call with the token. Single-use, expires in ~120s. |
 
 **Language-aware results.** When `language: "zh"` is set, the vote recommendation, dimension names, ratings, and reasoning text are all presented in Chinese, with no English enum values shown to the user.
 
@@ -376,7 +376,7 @@ Anything missing for the resolved scope → automatic sandbox fallback with a hi
 | `Q402_BUILDER_CODE` | off | Base Builder Code for `q402_x402_fetch` on-chain attribution (ERC-8021 via x402 v2 `extensions.builder-code`). |
 | `Q402_DISABLE_PRECHECK` | off | Set to `1` to opt out of the automatic pre-check trust-check on outgoing payments. |
 
-Combined with the two-phase `consentToken` + live-mode env, a **stablecoin** payment needs: a preview the user approved + amount ≤ cap + recipient allowed + all 3 live envs. **Q (QuackAI) is exempt from the cap** (your own token); the preview, recipient allowlist, and live-mode env still apply to it.
+Combined with the two-phase `consentToken` + live-mode env, a **stablecoin** payment needs: a preview the user approved in a separate message + amount ≤ cap + recipient allowed + all 3 live envs. The consent token is **single-use** and expires in ~120 seconds; consuming it within 2 seconds of issuance triggers the same-round double-call gate (threshold, not a guarantee of human confirmation). **Q (QuackAI) is exempt from the cap** (your own token); the preview, recipient allowlist, and live-mode env still apply to it.
 
 ---
 

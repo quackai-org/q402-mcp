@@ -14,7 +14,7 @@
 
 import { z } from "zod";
 import { CONFIG, resolveApiKey } from "../config.js";
-import { checkConsent } from "../consent.js";
+import { consentGate } from "../consent.js";
 
 export const RequestPayInputSchema = z.object({
   requestId: z
@@ -30,11 +30,11 @@ export const RequestPayInputSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Two-phase consent, identical to q402_pay. Call FIRST WITHOUT it: the tool moves no money and " +
-        "returns status=\"needs_consent\" with a `preview` of the exact payment plus a `consentToken`. " +
-        "Relay the preview to the user, get an explicit yes, then re-call with the SAME requestId PLUS " +
-        "this consentToken. The token is re-derived from the request's terms, so a previewed payment " +
-        "cannot be swapped for a different one. confirm:true alone does NOT fire a payment.",
+      "Two-phase consent. Call FIRST WITHOUT it — the tool moves no money and returns " +
+        "status=\"needs_consent\" with a preview of the exact payment plus a consentToken. " +
+        "Present the preview to the user and wait for their NEXT INDEPENDENT message. Then " +
+        "re-call with the SAME requestId plus this consentToken. Single-use, expires in ~120s, " +
+        "rejected if consumed within 2 seconds. Never re-call in the same turn.",
     ),
   walletId: z
     .string()
@@ -121,7 +121,7 @@ export async function runRequestPay(input: RequestPayInput): Promise<RequestPayR
     // (resolved at settle time); pinning a specific wallet re-triggers consent.
     wid: (input.walletId ?? "").toLowerCase(),
   };
-  const consent = checkConsent(consentIntent, input.consentToken);
+  const consent = consentGate(consentIntent, input.consentToken);
   if (!consent.ok) {
     const fromNote = input.walletId
       ? ` from wallet ${input.walletId}`
@@ -134,12 +134,12 @@ export async function runRequestPay(input: RequestPayInput): Promise<RequestPayR
       receiptId: null,
       ...terms,
       message:
-        "Relay this preview to the user and get an explicit yes, then re-call with the same requestId " +
-        "plus consentToken. No funds moved.",
+        "Present this quote to the user and wait for their explicit approval in a separate message, " +
+        "then re-call with the same requestId plus consentToken. No funds moved.",
       needsConsent: {
         status: "needs_confirmation",
-        preview: `Pay ${req.amount} ${req.token} to ${req.recipient} on ${req.chain}${fromNote} (request ${req.id}).`,
-        consentToken: consent.expected,
+        preview: `Pay ${req.amount} ${req.token} to ${req.recipient} on ${req.chain}${fromNote} (request ${req.id}). Token is single-use, expires in ~120s.`,
+        consentToken: consent.newToken,
       },
     };
   }
@@ -235,10 +235,10 @@ export const REQUEST_PAY_TOOL = {
       consentToken: {
         type: "string" as const,
         description:
-          "Two-phase consent. Omit on the FIRST call to get a needs_confirmation preview " +
-          "plus a consentToken (no funds move); re-call with the SAME requestId plus this " +
-          "token to execute. Re-derived from the request terms + funding wallet, so a " +
-          "previewed payment cannot be swapped for a different one.",
+          "Two-phase consent. Omit on the FIRST call — get a needs_confirmation preview plus " +
+          "a consentToken (no funds move). Present the preview to the user, wait for their " +
+          "NEXT INDEPENDENT message, then re-call with the SAME requestId plus this token. " +
+          "Single-use, expires in ~120s, rejected if consumed within 2s.",
       },
     },
     required: ["requestId", "confirm"],

@@ -24,7 +24,7 @@ import { z } from "zod";
 import { CONFIG, isValidPrivateKey, ENV } from "../config.js";
 import { CHAIN_CONFIG } from "../chains.js";
 import {
-  checkConsent,
+  consentGate,
   maxAmountGuard,
   getSessionSpendUsd,
   resetSessionSpendUsd,
@@ -256,6 +256,8 @@ function writeAudit(fields: {
   fundsMoved?:           boolean;
   fundsMovedUnknown?:    boolean;
   txHash?:               string | null;
+  consentIssuedAt?:      string;
+  consentConsumedAt?:    string;
 }, path?: string): void {
   const record: X402AuditRecord = {
     ...fields,
@@ -545,7 +547,7 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
     return { success: false, statusCode: 402, error: reason, auditId };
   }
 
-  // 5e: two-phase consent token
+  // 5e: two-phase consent token (stateful: random, one-time, 120s TTL, 2s hard gate)
   const consentIntent = {
     t: "x402_fetch",
     url: input.url,
@@ -555,12 +557,19 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
     asset: req.asset.toLowerCase(),
     network: req.network,
   };
-  const consent = checkConsent(consentIntent, input.consentToken);
+  const consent = consentGate(consentIntent, input.consentToken);
   if (!consent.ok) {
+    const blockedReason =
+      consent.reason === "too_fast"   ? "consent_too_fast" :
+      consent.reason === "expired"    ? "consent_expired" :
+      consent.reason === "consumed"   ? "consent_already_consumed" :
+      consent.reason === "intent_mismatch" ? "consent_intent_mismatch" :
+      consent.reason === "unknown"    ? "consent_token_unknown" :
+      "consent_required";
     writeAudit({
       id: auditId, url: input.url, method, payTo: req.payTo, asset: req.asset,
       network: req.network, amountAtomic: req.amount, amountUsd,
-      status: "blocked_by_guard", blockedReason: "consent_required",
+      status: "blocked_by_guard", blockedReason,
     });
     return {
       success: false,
@@ -571,12 +580,17 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
         preview:
           `Fetching ${input.url} requires payment of $${humanAmount} USDC ` +
           `to ${req.payTo} on Base. ` +
-          `Confirm with the user, then re-call this tool with the same args plus ` +
-          `consentToken="${consent.expected}".`,
-        consentToken: consent.expected,
+          `Present this quote to the user and wait for their explicit approval in a ` +
+          `separate message, then re-call this tool with the same args plus ` +
+          `consentToken="${consent.newToken}". ` +
+          `This token is single-use and expires in ~120 seconds.`,
+        consentToken: consent.newToken,
       },
     };
   }
+  // Capture consent timestamps for the audit record.
+  const consentIssuedAt = consent.issuedAt;
+  const consentConsumedAt = consent.consumedAt;
 
   // ── Step 5f: EIP-7702 delegation guard ───────────────────────────────────────
   // Derive the signing address without making any RPC call (sync from private key).
@@ -846,6 +860,8 @@ export async function runX402Fetch(input: X402FetchInput): Promise<X402FetchResu
     settlementStatusCode: retryResp.status,
     responseExcerpt: excerpt,
     txHash,
+    consentIssuedAt,
+    consentConsumedAt,
   });
 
   return {
@@ -886,8 +902,14 @@ export const X402_FETCH_TOOL = {
     "explicit rejection without signing. " +
     "\n\n" +
     "GUARDS: per-call max-amount cap (Q402_MAX_AMOUNT_PER_CALL), per-session cumulative " +
-    "cap (Q402_X402_SESSION_CAP_USD, default $5), and two-phase consent. First call without " +
-    "consentToken returns needs_confirmation + preview; re-call with consentToken to pay. " +
+    "cap (Q402_X402_SESSION_CAP_USD, default $5), and two-phase consent. " +
+    "TWO-PHASE CONSENT: call first WITHOUT consentToken — the tool returns " +
+    "needs_confirmation with a preview quoting the exact amount/recipient and a consentToken. " +
+    "Present that quote to the user verbatim. Wait for the user's NEXT INDEPENDENT message " +
+    "confirming payment. Only then re-call with the SAME args plus that consentToken. " +
+    "The token is single-use, expires in ~120 seconds, and is rejected if consumed within " +
+    "2 seconds of issuance (same-round double-call protection). Never re-call in the same " +
+    "conversation turn without a separate user confirmation message. " +
     "\n\n" +
     "OUTCOMES — read these carefully before summarizing results to users:\n" +
     "- success:true — content delivered and paid.\n" +
@@ -942,8 +964,11 @@ export const X402_FETCH_TOOL = {
       consentToken: {
         type: "string",
         description:
-          "Two-phase consent token. Omit on first call; the tool returns needs_confirmation with " +
-          "a token if a 402 is encountered. Re-call with the same args plus this token to pay.",
+          "Two-phase consent. Omit on the FIRST call — the tool returns needs_confirmation with " +
+          "a preview of the exact payment and a consentToken. Present the quote to the user, " +
+          "get their explicit approval in a SEPARATE message, then re-call with the SAME args " +
+          "plus this token. The token is single-use, expires in ~120s, and is rejected if " +
+          "consumed within 2s of issuance (same-round double-call protection).",
       },
     },
     required: ["url", "confirm"],

@@ -9,8 +9,9 @@
  *         boundaries are identical to pre-extraction behavior.
  */
 
-import { test, describe, beforeEach } from "node:test";
+import { test, describe, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { rmSync, existsSync } from "node:fs";
 
 import {
   maxAmountGuard,
@@ -21,6 +22,12 @@ import {
   getSessionCapUsd,
 } from "../guards.js";
 import { runX402Fetch } from "./x402-fetch.js";
+import {
+  consentGate,
+  issueConsentToken,
+  _setConsentTimingBypass,
+  _setConsentClock,
+} from "../consent.js";
 
 // ── Test helpers ───────────────────────────────────────────────────────────────
 
@@ -274,5 +281,95 @@ describe("AC-3: pay guard rejection observable behavior (throws before any TX)",
       threw = true;
     }
     assert.ok(threw, "recipientGuard must throw to block pay");
+  });
+});
+
+// ── Consent token freshness (AC-1 through AC-4) ────────────────────────────────
+
+describe("Consent token freshness (AC-1 through AC-4)", () => {
+  const tmpStore = `/tmp/q402-consent-guards-test-${process.pid}.json`;
+
+  const INTENT = { t: "pay", to: "0xabc", amount: "1.00", token: "USDC", chain: "base" };
+
+  before(() => {
+    _setConsentTimingBypass(false);
+    _setConsentClock(null);
+  });
+
+  afterEach(() => {
+    _setConsentTimingBypass(false);
+    _setConsentClock(null);
+  });
+
+  after(() => {
+    _setConsentTimingBypass(false);
+    _setConsentClock(null);
+    if (existsSync(tmpStore)) rmSync(tmpStore);
+  });
+
+  test("AC-1: same intent produces a different token on every issuance", () => {
+    const t1 = issueConsentToken(INTENT, tmpStore);
+    const t2 = issueConsentToken(INTENT, tmpStore);
+    assert.notStrictEqual(t1, t2, "two issuances must differ");
+    assert.match(t1, /^ct_[0-9a-f]{16}$/, "token format ct_<16hex>");
+    assert.match(t2, /^ct_[0-9a-f]{16}$/, "token format ct_<16hex>");
+  });
+
+  test("AC-2: token is one-time — second consumption returns 'consumed'", () => {
+    _setConsentTimingBypass(true);
+    const token = issueConsentToken(INTENT, tmpStore);
+    const r1 = consentGate(INTENT, token, tmpStore);
+    assert.ok(r1.ok, `first consumption must succeed: ${JSON.stringify(r1)}`);
+    const r2 = consentGate(INTENT, token, tmpStore);
+    assert.strictEqual(r2.ok, false);
+    if (!r2.ok) assert.strictEqual(r2.reason, "consumed");
+  });
+
+  test("AC-3: token older than 120 s is rejected as 'expired'", () => {
+    _setConsentTimingBypass(true);
+    const token = issueConsentToken(INTENT, tmpStore);
+    _setConsentTimingBypass(false);
+    // advance the consent clock 121 s past real now
+    _setConsentClock(() => Date.now() + 121_000);
+    const r = consentGate(INTENT, token, tmpStore);
+    assert.strictEqual(r.ok, false);
+    if (!r.ok) assert.strictEqual(r.reason, "expired");
+  });
+
+  test("AC-3: token within 120 s is not expired", () => {
+    _setConsentTimingBypass(true);
+    const token = issueConsentToken(INTENT, tmpStore);
+    _setConsentClock(() => Date.now() + 60_000);
+    const r = consentGate(INTENT, token, tmpStore);
+    assert.ok(r.ok, `should succeed at 60 s: ${JSON.stringify(r)}`);
+  });
+
+  test("AC-4: fabricated / cross-session token is rejected as 'unknown'", () => {
+    const r = consentGate(INTENT, "ct_0000000000000000", tmpStore);
+    assert.strictEqual(r.ok, false);
+    if (!r.ok) assert.strictEqual(r.reason, "unknown");
+  });
+
+  test("AC-4: token issued for a different intent is rejected as 'intent_mismatch'", () => {
+    _setConsentTimingBypass(true);
+    const token = issueConsentToken(INTENT, tmpStore);
+    const otherIntent = { ...INTENT, amount: "999.00" };
+    const r = consentGate(otherIntent, token, tmpStore);
+    assert.strictEqual(r.ok, false);
+    if (!r.ok) assert.strictEqual(r.reason, "intent_mismatch");
+  });
+
+  test("<2s gate: token consumed too fast is rejected and permanently marked", () => {
+    // No bypass — test runs in microseconds, well within the 2s guard
+    _setConsentTimingBypass(false);
+    const token = issueConsentToken(INTENT, tmpStore);
+    const r1 = consentGate(INTENT, token, tmpStore);
+    assert.strictEqual(r1.ok, false);
+    if (!r1.ok) assert.strictEqual(r1.reason, "too_fast");
+    // Even after "waiting" (clock advanced past 2s), token must stay permanently consumed
+    _setConsentClock(() => Date.now() + 5_000);
+    const r2 = consentGate(INTENT, token, tmpStore);
+    assert.strictEqual(r2.ok, false);
+    if (!r2.ok) assert.strictEqual(r2.reason, "consumed");
   });
 });

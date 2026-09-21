@@ -30,6 +30,11 @@ import {
   type X402AuditRecord,
 } from "./x402-audit-store.js";
 import { runAgentSpendReport } from "./agent-spend-report.js";
+import { issueConsentToken, _setConsentTimingBypass } from "../consent.js";
+
+// Enable timing bypass for all tests in this file: these tests verify payment
+// flow, not consent freshness. The freshness tests live in guards.test.ts.
+_setConsentTimingBypass(true);
 
 // ── Test helpers ───────────────────────────────────────────────────────────────
 
@@ -340,8 +345,7 @@ describe("AC-3: X-PAYMENT header preserves server-sent network verbatim", () => 
     _setDelegationCheck(async () => null);
     resetSessionSpendUsd();
 
-    const { checkConsent } = await import("../consent.js");
-    const consentIntent = {
+    const token = issueConsentToken({
       t: "x402_fetch",
       url: "https://x402.example/caip2-api",
       method: "GET",
@@ -349,8 +353,7 @@ describe("AC-3: X-PAYMENT header preserves server-sent network verbatim", () => 
       amountAtomic: "100",
       asset: BASE_USDC.toLowerCase(),
       network: "eip155:8453",
-    };
-    const { expected: token } = checkConsent(consentIntent, undefined);
+    });
 
     let capturedXPayment: string | undefined;
     const restore = stubFetch([
@@ -573,8 +576,7 @@ describe("AC-8: X-PAYMENT header assembly and retry", () => {
     resetSessionSpendUsd();
 
     // Build the consent token first
-    const { checkConsent } = await import("../consent.js");
-    const consentIntent = {
+    const token = issueConsentToken({
       t: "x402_fetch",
       url: "https://x402.example/paid-api",
       method: "GET",
@@ -582,8 +584,7 @@ describe("AC-8: X-PAYMENT header assembly and retry", () => {
       amountAtomic: "100",
       asset: BASE_USDC.toLowerCase(),
       network: "base",
-    };
-    const { expected: token } = checkConsent(consentIntent, undefined);
+    });
 
     let capturedHeaders: Record<string, string> | null = null;
     const restore = stubFetch([
@@ -797,11 +798,10 @@ describe("AC-9: v2 wire-format conformance", () => {
     process.env["Q402_AGENTIC_PRIVATE_KEY"] = TEST_PK;
     _setDelegationCheck(async () => null);
     resetSessionSpendUsd();
-    const { checkConsent } = await import("../consent.js");
-    const { expected: token } = checkConsent({
+    const token = issueConsentToken({
       t: "x402_fetch", url, method: "GET", payTo: SELLER.toLowerCase(),
       amountAtomic: "100", asset: BASE_USDC.toLowerCase(), network: "eip155:8453",
-    }, undefined);
+    });
     let captured: Record<string, string> | null = null;
     const restore = stubFetch([
       () => {
@@ -908,8 +908,7 @@ describe("settled_no_delivery: payment accepted, seller returned non-2xx", () =>
     _setDelegationCheck(async () => null);
     resetSessionSpendUsd();
 
-    const { checkConsent } = await import("../consent.js");
-    const consentIntent = {
+    const token = issueConsentToken({
       t: "x402_fetch",
       url: "https://stub.example/paid",
       method: "GET",
@@ -917,8 +916,7 @@ describe("settled_no_delivery: payment accepted, seller returned non-2xx", () =>
       amountAtomic: "1000",      // $0.001 USDC
       asset: BASE_USDC.toLowerCase(),
       network: "base",
-    };
-    const { expected: token } = checkConsent(consentIntent, undefined);
+    });
 
     const restore = stubFetch([
       () => Promise.resolve(makeResponse(402, make402Body({ amount: "1000" }))),
@@ -1020,8 +1018,7 @@ describe("settled_no_delivery: payment accepted, seller returned non-2xx", () =>
     _setDelegationCheck(async () => null);
     resetSessionSpendUsd();
 
-    const { checkConsent } = await import("../consent.js");
-    const consentIntent = {
+    const token = issueConsentToken({
       t: "x402_fetch",
       url: "https://stub.example/paid",
       method: "GET",
@@ -1029,8 +1026,7 @@ describe("settled_no_delivery: payment accepted, seller returned non-2xx", () =>
       amountAtomic: "1000",
       asset: BASE_USDC.toLowerCase(),
       network: "base",
-    };
-    const { expected: token } = checkConsent(consentIntent, undefined);
+    });
 
     const restore = stubFetch([
       () => Promise.resolve(makeResponse(402, make402Body({ amount: "1000" }))),
@@ -1218,8 +1214,7 @@ describe("settled_no_delivery: payment accepted, seller returned non-2xx", () =>
     _setDelegationCheck(async () => null);
     resetSessionSpendUsd();
 
-    const { checkConsent } = await import("../consent.js");
-    const consentIntent = {
+    const token = issueConsentToken({
       t: "x402_fetch",
       url: "https://stub.example/rejected",
       method: "GET",
@@ -1227,8 +1222,7 @@ describe("settled_no_delivery: payment accepted, seller returned non-2xx", () =>
       amountAtomic: "1000",
       asset: BASE_USDC.toLowerCase(),
       network: "base",
-    };
-    const { expected: token } = checkConsent(consentIntent, undefined);
+    });
 
     const restore = stubFetch([
       () => Promise.resolve(makeResponse(402, make402Body({ amount: "1000" }))),
@@ -1283,9 +1277,8 @@ async function withDelegationEnv(fn: () => Promise<void>): Promise<void> {
 }
 
 describe("EIP-7702 delegation guard: three-state (AC-1)", () => {
-  async function buildConsentToken(url: string): Promise<string> {
-    const { checkConsent } = await import("../consent.js");
-    const { expected } = checkConsent({
+  function buildConsentToken(url: string): string {
+    return issueConsentToken({
       t: "x402_fetch",
       url,
       method: "GET",
@@ -1293,8 +1286,7 @@ describe("EIP-7702 delegation guard: three-state (AC-1)", () => {
       amountAtomic: "100",
       asset: BASE_USDC.toLowerCase(),
       network: "base",
-    }, undefined);
-    return expected;
+    });
   }
 
   test("not delegated (eth_getCode = 0x) → proceeds past delegation guard", async () => {
@@ -1302,7 +1294,7 @@ describe("EIP-7702 delegation guard: three-state (AC-1)", () => {
       resetSessionSpendUsd();
       _setDelegationCheck(async () => null);
       const url = "https://x402.example/deleg-test-clear";
-      const token = await buildConsentToken(url);
+      const token = buildConsentToken(url);
       const restore = stubFetch([
         () => Promise.resolve(makeResponse(402, make402Body())),
         () => Promise.resolve(makeResponse(200, '{"ok":true}')),
@@ -1326,7 +1318,7 @@ describe("EIP-7702 delegation guard: three-state (AC-1)", () => {
       resetSessionSpendUsd();
       _setDelegationCheck(async () => NEW_IMPL);
       const url = "https://x402.example/deleg-test-new-impl";
-      const token = await buildConsentToken(url);
+      const token = buildConsentToken(url);
       const restore = stubFetch([
         () => Promise.resolve(makeResponse(402, make402Body())),
         () => Promise.resolve(makeResponse(200, '{"ok":true}')),
@@ -1350,7 +1342,7 @@ describe("EIP-7702 delegation guard: three-state (AC-1)", () => {
       resetSessionSpendUsd();
       _setDelegationCheck(async () => OLD_IMPL);
       const url = "https://x402.example/deleg-test-old-impl";
-      const token = await buildConsentToken(url);
+      const token = buildConsentToken(url);
       const restore = stubFetch([() => Promise.resolve(makeResponse(402, make402Body()))]);
       try {
         const result = await runX402Fetch({ url, confirm: true, consentToken: token });

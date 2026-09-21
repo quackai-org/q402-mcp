@@ -28,7 +28,7 @@ import {
   type KeyScope,
 } from "../config.js";
 import { Q402NodeClient, sandboxPay, type PayResult } from "../client.js";
-import { checkConsent, maxAmountGuard, recipientGuard } from "../guards.js";
+import { consentGate, maxAmountGuard, recipientGuard } from "../guards.js";
 import { runPrecheck, makeX402TrustCheckFn, shouldRunPrecheck, type PrecheckResult } from "./precheck.js";
 
 /** Which wallet the agent should spend from. */
@@ -107,13 +107,13 @@ export const PayInputSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Two-phase consent. LEAVE THIS UNSET on the first call: the tool will NOT " +
-        "send - it returns status=\"needs_confirmation\" with a human-readable " +
-        "`preview` of the exact payment and a `consentToken`. Relay that preview " +
-        "to the user verbatim, get their explicit yes, then call again with the " +
-        "SAME args plus this `consentToken`. The tool re-derives the token from the " +
-        "params it is about to execute and refuses on mismatch, so you cannot " +
-        "preview one payment and execute another. Never fabricate a token.",
+      "Two-phase consent. LEAVE THIS UNSET on the first call: the tool returns " +
+        "status=\"needs_confirmation\" with a preview quoting the exact payment and a " +
+        "consentToken. Present that preview to the user verbatim and wait for their " +
+        "NEXT INDEPENDENT message confirming payment. Only then re-call with the SAME " +
+        "args plus this consentToken. The token is single-use, expires in ~120 seconds, " +
+        "and is rejected if consumed within 2 seconds of issuance (same-round double-call " +
+        "protection). Never fabricate a token or re-call in the same turn.",
     ),
   hookParams: z
     .object({
@@ -445,7 +445,7 @@ export async function runPay(input: PayInput): Promise<PaySummary> {
       ? { ragent: input.hookParams.recipientAgentId }
       : {}),
   };
-  const consent = checkConsent(consentIntent, input.consentToken);
+  const consent = consentGate(consentIntent, input.consentToken);
   if (!consent.ok) {
     const splitNote = input.hookParams?.splits
       ? ` - split ${input.hookParams.splits.length} ways; funds go to the split recipients, not ${input.to}`
@@ -460,9 +460,10 @@ export async function runPay(input: PayInput): Promise<PaySummary> {
         status: "needs_confirmation",
         preview:
           `Send ${input.amount} ${input.token} to ${input.to} on ${chain.key}${railNote}${fromNote}${splitNote}. ` +
-          `Confirm with the user, then re-call q402_pay with the same args plus ` +
-          `consentToken="${consent.expected}".`,
-        consentToken: consent.expected,
+          `Present this quote to the user and wait for their explicit approval in a separate ` +
+          `message, then re-call q402_pay with the same args plus ` +
+          `consentToken="${consent.newToken}". Token is single-use, expires in ~120s.`,
+        consentToken: consent.newToken,
       },
     };
   }
@@ -1039,12 +1040,13 @@ export const PAY_TOOL = {
     "this tool. " +
     "\n\n" +
     "TWO-PHASE CONSENT: confirm:true alone does NOT send. Call this tool first " +
-    "WITHOUT consentToken - it returns status=\"needs_confirmation\" with a " +
-    "`preview` of the exact payment and a `consentToken`, and moves no money. " +
-    "Relay that preview to the user, get their explicit yes, then re-call with " +
-    "the SAME args plus that `consentToken` to execute. The token is re-derived " +
-    "from the params about to run, so a previewed payment can't be swapped for " +
-    "a different one. " +
+    "WITHOUT consentToken — it returns status=\"needs_confirmation\" with a quote " +
+    "of the exact payment and a consentToken, and moves no money. Present that " +
+    "quote to the user verbatim and wait for their NEXT INDEPENDENT message " +
+    "confirming payment. Only then re-call with the SAME args plus that consentToken. " +
+    "The token is single-use, expires in ~120 seconds, and is rejected if consumed " +
+    "within 2 seconds of issuance (same-round double-call protection, not a guarantee " +
+    "of human confirmation). Never re-call in the same conversation turn. " +
     "\n\n" +
     "PRE-CHECK (automatic trust-check before payment, live mode only): " +
     "In live mode, q402_pay automatically runs a trust-check on the recipient " +
@@ -1141,10 +1143,10 @@ export const PAY_TOOL = {
       consentToken: {
         type: "string",
         description:
-          "Two-phase consent. Omit on the FIRST call to get a needs_confirmation preview " +
-          "plus a consentToken (no funds move); re-call with the SAME args plus this token " +
-          "to execute. Re-derived from the payment params, so a previewed payment cannot be " +
-          "swapped for a different one. confirm:true alone does NOT send.",
+          "Two-phase consent. Omit on the FIRST call — get a needs_confirmation quote plus a " +
+          "consentToken (no funds move). Present the quote to the user, wait for their NEXT " +
+          "INDEPENDENT message, then re-call with the SAME args plus this token. Single-use, " +
+          "expires in ~120s, rejected if consumed within 2s (same-round double-call protection).",
       },
       hookParams: {
         type: "object",
