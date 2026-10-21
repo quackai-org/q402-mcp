@@ -35,7 +35,7 @@ export const YieldWithdrawInputSchema = z.object({
     .regex(/^(\d+(\.\d+)?|max)$/, 'amount must be a positive decimal string or "max"')
     .describe('Human-readable decimal amount to withdraw, e.g. "100.00", or "max" to withdraw the maximum currently redeemable (can be less than the full position when the vault caps liquidity).'),
   protocol: z
-    .enum(["aave", "morpho", "lista"])
+    .enum(["aave", "morpho", "lista", "zircuit"])
     .optional()
     .describe(
       "Venue to withdraw from when the wallet holds the SAME token in more than one lending " +
@@ -96,6 +96,11 @@ export const YIELD_WITHDRAW_TOOL = {
     "market and is reported in the receipt. " +
     "Other chains are not yet available. " +
     "\n\n" +
+    "ZIRCUIT IS QUEUED - withdrawing a Zircuit position (base USDC) files a withdrawal REQUEST: the " +
+    "result has status pending + a requestId, and USDC arrives in the Agent Wallet when Zircuit " +
+    "processes it (usually within 24 hours, up to 14 days). q402_yield_positions lists pending " +
+    "requests; q402_yield_cancel cancels one while it is pending. " +
+    "\n\n" +
     "REQUIRES CONFIRMATION - like q402_pay, this tool refuses to execute unless " +
     "`confirm: true` is set. Call it FIRST without confirm to get a one-line preview of " +
     "exactly what will happen (amount, token, chain, wallet); show that to the user, get " +
@@ -136,7 +141,7 @@ export const YIELD_WITHDRAW_TOOL = {
       },
       protocol: {
         type: "string" as const,
-        enum: ["aave", "morpho", "lista"],
+        enum: ["aave", "morpho", "lista", "zircuit"],
         description:
           "Venue to withdraw from when the wallet holds the same token in more than one lending " +
           'venue on a chain. Omit when unambiguous; on an "AMBIGUOUS_POSITION" error re-call with ' +
@@ -192,6 +197,10 @@ interface WithdrawData {
   /** Set on a 409 AMBIGUOUS_POSITION - the venues holding this token on the chain;
    *  re-call with `protocol` set to one of them. */
   protocols?: string[];
+  /** Zircuit: the withdraw filed a queued request (action "yield_withdraw_request"). */
+  pending?: boolean;
+  requestId?: string;
+  withdrawal?: { mode?: string; typicalDays?: number; maxDays?: number };
 }
 
 export async function runYieldWithdraw(input: z.infer<typeof YieldWithdrawInputSchema>) {
@@ -213,7 +222,7 @@ export async function runYieldWithdraw(input: z.infer<typeof YieldWithdrawInputS
     return {
       content: [{
         type: "text" as const,
-        text: `Base yield (Morpho) supports USDC only, not ${input.token}. Use chain "bnb" for USDT yield.`,
+        text: `Base yield (Morpho, Zircuit) supports USDC only, not ${input.token}. Use chain "bnb" for USDT yield.`,
       }],
       isError: true,
     };
@@ -266,7 +275,11 @@ export async function runYieldWithdraw(input: z.infer<typeof YieldWithdrawInputS
         type: "text" as const,
         text:
           `Will withdraw ${amountDesc} from your lending position on ${input.chain} back to ` +
-          `${walletDesc}. This MOVES FUNDS. Confirm with the user, then re-call with ` +
+          `${walletDesc}.` +
+          (input.protocol === "zircuit"
+            ? " Zircuit pays out through a queue: this files a request and USDC arrives usually within 24 hours, up to 14 days."
+            : "") +
+          ` This MOVES FUNDS. Confirm with the user, then re-call with ` +
           `confirm:true AND consentToken="${previewToken}".`,
       }],
     };
@@ -412,10 +425,19 @@ export async function runYieldWithdraw(input: z.infer<typeof YieldWithdrawInputS
     };
   }
 
-  const summary = data.txHash
-    ? `Withdrew ${data.amount ?? amountDesc} ${data.asset ?? ""}`.trimEnd() +
-      ` from ${data.protocol ?? "the lending vault"} on ${data.chain ?? input.chain}. txHash ${data.txHash}.`
-    : `Yield withdraw submitted on ${data.chain ?? input.chain}.`;
+  const queuedRequest = data.action === "yield_withdraw_request" || data.pending === true;
+  const maxDays = data.withdrawal?.maxDays ?? 14;
+  const summary = queuedRequest
+    ? `Withdrawal requested from ${data.protocol ?? "zircuit"} on ${data.chain ?? input.chain}` +
+      (data.requestId ? ` (request #${data.requestId})` : "") +
+      `. USDC arrives in the Agent Wallet when it is processed: usually within 24 hours, up to ${maxDays} days. ` +
+      `It is NOT paid out yet. Cancel while pending with q402_yield_cancel` +
+      (data.requestId ? ` (requestId "${data.requestId}")` : "") +
+      (data.txHash ? `. txHash ${data.txHash}.` : ".")
+    : data.txHash
+      ? `Withdrew ${data.amount ?? amountDesc} ${data.asset ?? ""}`.trimEnd() +
+        ` from ${data.protocol ?? "the lending vault"} on ${data.chain ?? input.chain}. txHash ${data.txHash}.`
+      : `Yield withdraw submitted on ${data.chain ?? input.chain}.`;
 
   return {
     content: [

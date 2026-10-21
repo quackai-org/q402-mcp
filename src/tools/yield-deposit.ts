@@ -30,11 +30,12 @@ export const YieldDepositInputSchema = z.object({
     .enum(["USDC", "USDT"])
     .describe("Stablecoin to supply. USDC or USDT on bnb; USDC only on base."),
   protocol: z
-    .enum(["aave", "lista", "morpho"])
+    .enum(["aave", "lista", "morpho", "zircuit"])
     .optional()
     .describe(
       "Optional deposit venue (which lending market to supply into). On 'bnb' choose " +
-        "'aave' or 'lista'; on 'base' only 'morpho'. Omit to use the chain's default venue. " +
+        "'aave' or 'lista'; on 'base' choose 'morpho' or 'zircuit'. Omit to use the chain's default venue. " +
+        "Zircuit (base) pays withdrawals out through a queue: a withdraw files a request and USDC arrives usually within 24 hours, up to 14 days; cancel a pending one with q402_yield_cancel. Zircuit deposits are not available from the US or sanctioned regions. " +
         "Mirrors the dashboard's per-market venue choice and is bound into the consent token, " +
         "so a previewed venue can't be swapped on the confirm call. Use q402_yield_reserves to " +
         "see each market's venue + APY first.",
@@ -97,6 +98,8 @@ export const YIELD_DEPOSIT_TOOL = {
     "the chain's curated market and is reported in the markets feed and the receipt. " +
     "Other chains are not yet available. " +
     "\n\n" +
+    "ZIRCUIT (protocol 'zircuit', base USDC): an institutional-strategy vault. Zircuit (base) pays withdrawals out through a queue: a withdraw files a request and USDC arrives usually within 24 hours, up to 14 days; cancel a pending one with q402_yield_cancel. Zircuit deposits are not available from the US or sanctioned regions. " +
+    "\n\n" +
     "REQUIRES CONFIRMATION - like q402_pay, this tool refuses to execute unless " +
     "`confirm: true` is set. Call it FIRST without confirm to get a one-line preview of " +
     "exactly what will happen (amount, token, chain, wallet); show that to the user, get " +
@@ -131,9 +134,10 @@ export const YIELD_DEPOSIT_TOOL = {
       },
       protocol: {
         type: "string" as const,
-        enum: ["aave", "lista", "morpho"],
+        enum: ["aave", "lista", "morpho", "zircuit"],
         description:
-          "Optional deposit venue. 'aave' or 'lista' on bnb; 'morpho' on base. Omit for the " +
+          "Optional deposit venue. 'aave' or 'lista' on bnb; 'morpho' or 'zircuit' on base " +
+          "(Zircuit withdrawals are queued: usually within 24 hours, up to 14 days). Omit for the " +
           "chain's default venue. Bound into the consent token so a previewed venue can't be " +
           "swapped. See q402_yield_reserves for each market's venue + APY.",
       },
@@ -209,7 +213,7 @@ export async function runYieldDeposit(input: z.infer<typeof YieldDepositInputSch
     return {
       content: [{
         type: "text" as const,
-        text: `Base yield (Morpho) supports USDC only, not ${input.token}. Use chain "bnb" for USDT yield.`,
+        text: `Base yield (Morpho, Zircuit) supports USDC only, not ${input.token}. Use chain "bnb" for USDT yield.`,
       }],
       isError: true,
     };
@@ -258,7 +262,11 @@ export async function runYieldDeposit(input: z.infer<typeof YieldDepositInputSch
         type: "text" as const,
         text:
           `Will supply ${input.amount} ${input.token} into ${venueDesc} on ${input.chain} from ` +
-          `${walletDesc}. This MOVES FUNDS. Confirm with the user, then re-call with ` +
+          `${walletDesc}.` +
+          (input.protocol === "zircuit"
+            ? " Note: Zircuit withdrawals are queued, usually within 24 hours and up to 14 days."
+            : "") +
+          ` This MOVES FUNDS. Confirm with the user, then re-call with ` +
           `confirm:true AND consentToken="${previewToken}".`,
       }],
     };

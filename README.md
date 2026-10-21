@@ -183,7 +183,7 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 
 ## Tools exposed
 
-**47 tools, grouped by capability.** Read-only by default; live mode needs a live API key, a signing path, and `Q402_ENABLE_REAL_PAYMENTS=1`. Rows marked `live mode` move funds and need an explicit in-chat confirmation.
+**49 tools, grouped by capability.** Read-only by default; live mode needs a live API key, a signing path, and `Q402_ENABLE_REAL_PAYMENTS=1`. Rows marked `live mode` move funds and need an explicit in-chat confirmation.
 
 | Tool | Auth | Purpose |
 |---|---|---|
@@ -222,6 +222,7 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 | `q402_yield_positions` | api key | Show the Agent Wallet's open Q402 Yield positions (balance, principal, accrued interest, APY) + total supplied in USD. Mode C. |
 | `q402_yield_deposit` | live mode | Supply the Agent Wallet's stablecoins into Q402 Yield's curated lending market per chain: BNB (USDC/USDT) or Base (USDC only). Mode C. Requires `confirm: true`; sandbox-by-default. |
 | `q402_yield_withdraw` | live mode | Withdraw supplied stablecoins out of Q402 Yield (curated lending markets on BNB and Base) back to the Agent Wallet (`amount: "max"` = max currently redeemable, which vault caps or queues can leave below the full position). Mode C. Requires `confirm: true`; sandbox-by-default. |
+| `q402_yield_cancel` | live mode | Cancel a pending Zircuit Finance withdraw request on Base. Zircuit withdrawals are queued (usually within 24 hours, up to 14 days); a canceled request returns the shares to the position. Mode C. Requires `confirm: true`; sandbox-by-default. |
 | **Staking** | | |
 | `q402_stake` | live mode | Gasless Q (QuackAI) staking into QuackAiStake on BNB Chain. Lock tiers 0-3 (30d/10%, 60d/15%, 120d/32%, 180d/40% APR). `amount: "max"` stakes the whole Q balance. Mode C. Requires `confirm: true`; sandbox-by-default. |
 | `q402_unstake` | live mode | Gasless unstake of matured Q on BNB. Per-record: exit one stake by index (`ith`) or `all: true` for every matured stake. Mode C. Requires `confirm: true`; sandbox-by-default. |
@@ -246,7 +247,7 @@ Then export the values in `~/.zshrc` / `~/.bashrc`. See the [Codex config refere
 | `q402_x402_fetch` | live mode | Fetch any x402-gated URL and handle HTTP 402 automatically: validates Base USDC payment option, guards against excess spend, signs EIP-3009 TransferWithAuthorization, and retries with the correct payment header (PAYMENT-SIGNATURE for v2 servers, X-PAYMENT for v1 legacy). Non-402 responses pass through unchanged. Returns `status:"settled_no_delivery"` (`fundsMoved:true, retrySafe:false`) when a txHash in the response confirms funds moved but the seller returned an error. Returns `status:"settled_status_unknown"` (`fundsMovedUnknown:true, retrySafe:false`) when no settlement proof exists — funds may or may not have moved. Do NOT retry either outcome. |
 | `q402_governance_analyze` | live mode | Paid governance proposal analysis. Paste a snapshot.org / snapshot.box link (or raw text) and optionally describe your priority in plain language; get a vote recommendation (For / Against / Abstain), five dimension ratings, and the reasoning. Pass `language` (e.g. `"zh"`) to receive results in the user's language. $0.05 USDC per call on Base via x402. |
 
-`q402_pay` + `q402_batch_pay` + `q402_bridge_send` + `q402_yield_deposit` + `q402_yield_withdraw` + `q402_stake` + `q402_unstake` + `q402_request_pay` require explicit in-chat confirmation. Batch confirmation = full batch, not per-row.
+`q402_pay` + `q402_batch_pay` + `q402_bridge_send` + `q402_yield_deposit` + `q402_yield_withdraw` + `q402_yield_cancel` + `q402_stake` + `q402_unstake` + `q402_request_pay` require explicit in-chat confirmation. Batch confirmation = full batch, not per-row.
 
 > Note: `q402_pay` expects a 0x address; ENS is not resolved server-side, so resolve it client-side first.
 > Per-chain Gas Tank balances + full TX history live in the [dashboard](https://q402.quackai.ai/dashboard) (wallet-signature only).

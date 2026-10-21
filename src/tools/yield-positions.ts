@@ -52,6 +52,8 @@ export const YIELD_POSITIONS_TOOL = {
     "interest earned' figure from this tool; report only the current position value and the APY. " +
     "walletId is OPTIONAL: omit it and the server reads the owner's default Agent Wallet " +
     "(resolved from the API key); pass one only when the owner holds more than one wallet. " +
+    "ZIRCUIT withdrawals are queued: pending withdrawal requests (not yet paid out, not counted in the " +
+    "position value) are listed under pendingWithdrawals with their requestId; cancel one with q402_yield_cancel. " +
     "An optional chain filter is also accepted. Use this whenever the user asks 'what is my position " +
     "worth?', 'what's my current yield balance / APY?', or 'what are my open lending positions?'",
   inputSchema: {
@@ -107,6 +109,18 @@ interface PositionsData {
    */
   unavailable?: boolean;
   unavailableChains?: string[];
+  /** Zircuit queued withdraw requests: pending (from the chain) + recent history. */
+  withdrawalRequests?: {
+    protocol: string;
+    chain: string;
+    asset: string;
+    requestId: string;
+    estimatedAssets: string;
+    minAssetsOut: string;
+    status: "pending" | "processed" | "canceled";
+  }[];
+  /** Value of PENDING requests (not part of totalSuppliedUsd). */
+  pendingWithdrawalUsd?: number;
 }
 
 export async function runYieldPositions(input: z.infer<typeof YieldPositionsInputSchema>) {
@@ -197,7 +211,12 @@ export async function runYieldPositions(input: z.infer<typeof YieldPositionsInpu
         unavailableChains.length ? ` (${unavailableChains.join(", ")})` : ""
       } - this snapshot may be incomplete; retry before treating a balance as zero.`
     : "";
-  const summary = positions.length
+  const pendingRequests = (data.withdrawalRequests ?? []).filter(r => r.status === "pending");
+  const pendingNote = pendingRequests.length
+    ? ` Plus ${pendingRequests.length} pending Zircuit withdrawal request(s) worth about ` +
+      `$${(data.pendingWithdrawalUsd ?? 0).toFixed(2)} (queued, not paid out yet; not in the value above).`
+    : "";
+  const summary = (positions.length
     ? `Total current position value: $${(data.totalSuppliedUsd ?? 0).toFixed(2)} across ` +
       `${positions.length} position(s) (live aToken balance incl. accrued interest; ` +
       `earnings are not broken out).${unavailableNote}`
@@ -205,7 +224,7 @@ export async function runYieldPositions(input: z.infer<typeof YieldPositionsInpu
       ? `No positions returned, but a read failure occurred${
           unavailableChains.length ? ` on ${unavailableChains.join(", ")}` : ""
         } - this is NOT a confirmed empty position; retry.`
-      : "No open Q402 Yield positions for this wallet.";
+      : "No open Q402 Yield positions for this wallet.") + pendingNote;
 
   return {
     content: [
@@ -231,6 +250,15 @@ export async function runYieldPositions(input: z.infer<typeof YieldPositionsInpu
             ...(p.accrued != null ? { accrued: p.accrued } : {}),
           })),
           totalCurrentValueUsd: data.totalSuppliedUsd ?? null,
+          pendingWithdrawals: pendingRequests.map(r => ({
+            protocol: r.protocol,
+            chain: r.chain,
+            asset: r.asset,
+            requestId: r.requestId,
+            estimatedValue: r.estimatedAssets,
+            minOut: r.minAssetsOut,
+          })),
+          pendingWithdrawalUsd: data.pendingWithdrawalUsd ?? 0,
           asOf: data.asOf ?? null,
           unavailable: hasUnavailable,
           unavailableChains,

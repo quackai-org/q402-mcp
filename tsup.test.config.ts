@@ -11,6 +11,7 @@ export default defineConfig({
     "src/tools/guards.test.ts",
     "src/tools/delegation-selfheal.test.ts",
     "src/tools/precheck.test.ts",
+    "src/tools/yield-cancel.test.ts",
     "src/tools/doctor.test.ts",
   ],
   format: ["esm"],

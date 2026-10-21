@@ -1,7 +1,7 @@
 /**
  * @quackai/q402-mcp - MCP server entry point (stdio transport).
  *
- * Exposes 46 tools to any MCP-compatible AI client (Claude Desktop,
+ * Exposes 49 tools to any MCP-compatible AI client (Claude Desktop,
  * Claude Code, OpenAI Codex CLI, Cursor, Cline, …):
  *
  *   q402_doctor             read-only, no key - first-install onboarding +
@@ -54,14 +54,17 @@
  *                           native balance + auto-fund debit window so AI
  *                           can decide whether to top up before bridging.
  *   q402_yield_reserves     read-only, no key - list Q402 Yield lending
- *                           markets + supply APY. Aave V3 + Lista on BNB, Morpho on Base.
+ *                           markets + supply APY. Aave V3 + Lista on BNB, Morpho + Zircuit on Base.
  *   q402_yield_positions    read-only, requires key - Agent Wallet's open
  *                           Q402 Yield positions + total supplied (USD)
  *   q402_yield_deposit      write, requires key - supply stablecoins into
  *                           Q402 Yield: Aave V3 or Lista on BNB (USDC/USDT), or Morpho on
  *                           Base (USDC). Mode C, confirm-gated, sandbox-default
  *   q402_yield_withdraw     write, requires key - withdraw out of Q402 Yield
- *                           (BNB Aave/Lista, Base Morpho; amount "max" = full). Mode C,
+ *                           (BNB Aave/Lista, Base Morpho; amount "max" = full). Zircuit
+ *                           files a queued request instead. Mode C, confirm-gated, sandbox-default
+ *   q402_yield_cancel       write, requires key - cancel a pending Zircuit withdraw
+ *                           request (shares return to the position). Mode C,
  *                           confirm-gated, sandbox-default
  *   q402_request_create     write, requires key - publish a payment request
  *                           (invoice). No funds move; returns a /pay link +
@@ -120,6 +123,7 @@ import { YIELD_RESERVES_TOOL,  YieldReservesInputSchema,  runYieldReserves }  fr
 import { YIELD_POSITIONS_TOOL, YieldPositionsInputSchema, runYieldPositions } from "./tools/yield-positions.js";
 import { YIELD_DEPOSIT_TOOL,   YieldDepositInputSchema,   runYieldDeposit }   from "./tools/yield-deposit.js";
 import { YIELD_WITHDRAW_TOOL,  YieldWithdrawInputSchema,  runYieldWithdraw }  from "./tools/yield-withdraw.js";
+import { YIELD_CANCEL_TOOL,    YieldCancelInputSchema,    runYieldCancel }    from "./tools/yield-cancel.js";
 import { STAKE_TOOL, StakeInputSchema, runStake, UNSTAKE_TOOL, UnstakeInputSchema, runUnstake } from "./tools/stake.js";
 import { STAKE_POSITIONS_TOOL, StakePositionsInputSchema, runStakePositions } from "./tools/stake-positions.js";
 import {
@@ -265,6 +269,8 @@ async function main(): Promise<void> {
       // / withdraw with the encrypted key.
       YIELD_DEPOSIT_TOOL,
       YIELD_WITHDRAW_TOOL,
+      // Zircuit (base) withdrawals are queued; cancel a pending request.
+      YIELD_CANCEL_TOOL,
       // Gasless Q (QuackAI) staking into QuackAiStake on BNB (server-signed).
       // stake (incl. "max"), per-record unstake (exit by index / all matured),
       // and a read-only positions snapshot (indices + exitable flags).
@@ -427,6 +433,10 @@ async function main(): Promise<void> {
         case "q402_yield_withdraw": {
           const parsed = YieldWithdrawInputSchema.parse(args ?? {});
           return await runYieldWithdraw(parsed);
+        }
+        case "q402_yield_cancel": {
+          const parsed = YieldCancelInputSchema.parse(args ?? {});
+          return await runYieldCancel(parsed);
         }
         case "q402_stake": {
           const parsed = StakeInputSchema.parse(args ?? {});
