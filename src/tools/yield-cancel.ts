@@ -18,7 +18,7 @@ import { consentGate } from "../consent.js";
 export const YieldCancelInputSchema = z.object({
   requestId: z
     .string()
-    .regex(/^\d{1,30}$/, "requestId must be the numeric id of the withdraw request")
+    .regex(/^(0|[1-9]\d{0,29})$/, "requestId must be the numeric id of the withdraw request (no leading zeros)")
     .describe("The pending withdraw request to cancel, from q402_yield_withdraw's result or q402_yield_positions' pendingWithdrawals."),
   chain: z
     .enum(["base"])

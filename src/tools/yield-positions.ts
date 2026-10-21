@@ -118,6 +118,8 @@ interface PositionsData {
     estimatedAssets: string;
     minAssetsOut: string;
     status: "pending" | "processed" | "canceled";
+    /** pending only: false = below its floor; Zircuit can't process it until it is canceled and re-requested. */
+    processable?: boolean;
   }[];
   /** Value of PENDING requests (not part of totalSuppliedUsd). */
   pendingWithdrawalUsd?: number;
@@ -214,7 +216,10 @@ export async function runYieldPositions(input: z.infer<typeof YieldPositionsInpu
   const pendingRequests = (data.withdrawalRequests ?? []).filter(r => r.status === "pending");
   const pendingNote = pendingRequests.length
     ? ` Plus ${pendingRequests.length} pending Zircuit withdrawal request(s) worth about ` +
-      `$${(data.pendingWithdrawalUsd ?? 0).toFixed(2)} (queued, not paid out yet; not in the value above).`
+      `$${(data.pendingWithdrawalUsd ?? 0).toFixed(2)} (queued, not paid out yet; not in the value above).` +
+      (pendingRequests.some(r => r.processable === false)
+        ? " At least one request fell below its floor and can't be processed: cancel it with q402_yield_cancel and request again."
+        : "")
     : "";
   const summary = (positions.length
     ? `Total current position value: $${(data.totalSuppliedUsd ?? 0).toFixed(2)} across ` +
@@ -257,6 +262,7 @@ export async function runYieldPositions(input: z.infer<typeof YieldPositionsInpu
             requestId: r.requestId,
             estimatedValue: r.estimatedAssets,
             minOut: r.minAssetsOut,
+            ...(r.processable !== undefined ? { processable: r.processable } : {}),
           })),
           pendingWithdrawalUsd: data.pendingWithdrawalUsd ?? 0,
           asOf: data.asOf ?? null,

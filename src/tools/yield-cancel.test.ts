@@ -20,6 +20,7 @@ describe("q402_yield_cancel schema", () => {
 
   test("rejects a non-numeric request id and a non-base chain", () => {
     assert.throws(() => YieldCancelInputSchema.parse({ requestId: "abc" }));
+    assert.throws(() => YieldCancelInputSchema.parse({ requestId: "07" }));
     assert.throws(() => YieldCancelInputSchema.parse({ requestId: "1", chain: "bnb" }));
   });
 
