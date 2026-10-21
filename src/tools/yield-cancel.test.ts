@@ -35,7 +35,7 @@ describe("q402_yield_cancel schema", () => {
 describe("q402_yield_cancel consent", () => {
   test("first call previews and issues a consent token without any network call", async () => {
     const r = await runYieldCancel(YieldCancelInputSchema.parse({ requestId: "7" }));
-    const text = r.content[0].text;
+    const text = r.content[0]?.text ?? "";
     assert.match(text, /Will cancel pending Zircuit withdraw request #7 on base/);
     assert.match(text, /consentToken="ct_[0-9a-f]+"/);
     assert.equal((r as { isError?: boolean }).isError, undefined);
@@ -43,6 +43,6 @@ describe("q402_yield_cancel consent", () => {
 
   test("confirm:true with a wrong token is still a preview", async () => {
     const r = await runYieldCancel(YieldCancelInputSchema.parse({ requestId: "7", confirm: true, consentToken: "ct_0000000000000000" }));
-    assert.match(r.content[0].text, /Will cancel pending Zircuit withdraw request #7/);
+    assert.match(r.content[0]?.text ?? "", /Will cancel pending Zircuit withdraw request #7/);
   });
 });
