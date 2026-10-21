@@ -123,6 +123,8 @@ interface PositionsData {
   }[];
   /** Value of PENDING requests (not part of totalSuppliedUsd). */
   pendingWithdrawalUsd?: number;
+  /** Chains whose withdraw-request read failed: pending withdrawals there are UNKNOWN. */
+  withdrawalRequestsUnavailableChains?: string[];
 }
 
 export async function runYieldPositions(input: z.infer<typeof YieldPositionsInputSchema>) {
@@ -214,12 +216,19 @@ export async function runYieldPositions(input: z.infer<typeof YieldPositionsInpu
       } - this snapshot may be incomplete; retry before treating a balance as zero.`
     : "";
   const pendingRequests = (data.withdrawalRequests ?? []).filter(r => r.status === "pending");
+  const requestsUnavailable = Array.isArray(data.withdrawalRequestsUnavailableChains)
+    ? data.withdrawalRequestsUnavailableChains
+    : [];
   const pendingNote = pendingRequests.length
     ? ` Plus ${pendingRequests.length} pending Zircuit withdrawal request(s) worth about ` +
       `$${(data.pendingWithdrawalUsd ?? 0).toFixed(2)} (queued, not paid out yet; not in the value above).` +
       (pendingRequests.some(r => r.processable === false)
         ? " At least one request fell below its floor and can't be processed: cancel it with q402_yield_cancel and request again."
         : "")
+    : "";
+  const requestsUnavailableNote = requestsUnavailable.length
+    ? ` Pending Zircuit withdrawal requests could not be read on ${requestsUnavailable.join(", ")} this cycle - ` +
+      "there may be queued withdrawals that are not listed; retry before concluding there are none."
     : "";
   const summary = (positions.length
     ? `Total current position value: $${(data.totalSuppliedUsd ?? 0).toFixed(2)} across ` +
@@ -229,7 +238,7 @@ export async function runYieldPositions(input: z.infer<typeof YieldPositionsInpu
       ? `No positions returned, but a read failure occurred${
           unavailableChains.length ? ` on ${unavailableChains.join(", ")}` : ""
         } - this is NOT a confirmed empty position; retry.`
-      : "No open Q402 Yield positions for this wallet.") + pendingNote;
+      : "No open Q402 Yield positions for this wallet.") + pendingNote + requestsUnavailableNote;
 
   return {
     content: [
@@ -265,6 +274,8 @@ export async function runYieldPositions(input: z.infer<typeof YieldPositionsInpu
             ...(r.processable !== undefined ? { processable: r.processable } : {}),
           })),
           pendingWithdrawalUsd: data.pendingWithdrawalUsd ?? 0,
+          // Present when the request read failed somewhere: treat pendingWithdrawals as incomplete.
+          ...(requestsUnavailable.length ? { pendingWithdrawalsUnavailableChains: requestsUnavailable } : {}),
           asOf: data.asOf ?? null,
           unavailable: hasUnavailable,
           unavailableChains,

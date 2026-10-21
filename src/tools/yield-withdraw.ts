@@ -278,7 +278,9 @@ export async function runYieldWithdraw(input: z.infer<typeof YieldWithdrawInputS
           `${walletDesc}.` +
           (input.protocol === "zircuit"
             ? " Zircuit pays out through a queue: this files a request and USDC arrives usually within 24 hours, up to 14 days."
-            : "") +
+            : input.chain === "base" && !input.protocol
+              ? " If this Base position is in Zircuit, this files a queued withdrawal request instead (USDC usually within 24 hours, up to 14 days); pass protocol to be explicit."
+              : "") +
           ` This MOVES FUNDS. Confirm with the user, then re-call with ` +
           `confirm:true AND consentToken="${previewToken}".`,
       }],

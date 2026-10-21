@@ -62,7 +62,8 @@ export const YIELD_CANCEL_TOOL = {
     properties: {
       requestId: {
         type: "string" as const,
-        description: "The pending withdraw request id (digits), from q402_yield_positions pendingWithdrawals or the withdraw result.",
+        pattern: "^(0|[1-9][0-9]{0,29})$",
+        description: "The pending withdraw request id (digits, no leading zeros), from q402_yield_positions pendingWithdrawals or the withdraw result.",
       },
       chain: {
         type: "string" as const,

@@ -53,6 +53,8 @@ interface Market {
   marketAddress: string;
   /** Fraction - 0.021 means 2.1% APY. */
   supplyApy: number;
+  /** true = the APY couldn't be read this time; supplyApy 0 then means unknown. */
+  apyUnavailable?: boolean;
   label: string;
 }
 
@@ -107,7 +109,7 @@ export async function runYieldReserves(input: z.infer<typeof YieldReservesInputS
   // restate the fraction as a percent.
   const summary = markets.length
     ? markets
-        .map(m => `${m.label} (${m.chain}): ${(m.supplyApy * 100).toFixed(2)}% APY`)
+        .map(m => `${m.label} (${m.chain}): ${m.apyUnavailable ? "APY unavailable right now" : `${(m.supplyApy * 100).toFixed(2)}% APY`}`)
         .join("\n")
     : "No yield markets returned for the requested filter.";
 
@@ -120,7 +122,7 @@ export async function runYieldReserves(input: z.infer<typeof YieldReservesInputS
           supportedChains: data.supportedChains ?? [],
           markets: markets.map(m => ({
             ...m,
-            supplyApyPct: Math.round(m.supplyApy * 100 * 100) / 100,
+            supplyApyPct: m.apyUnavailable ? null : Math.round(m.supplyApy * 100 * 100) / 100,
           })),
           asOf: data.asOf ?? null,
         }, null, 2),
